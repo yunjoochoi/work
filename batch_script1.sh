@@ -20,7 +20,7 @@ echo "64"
 
 cd work
 source .venv/bin/activate
-python -u mm_doc_tool_docbatchver.py
+python -u mm_doc_tool_docbatch_fallback_inline.py
 
 # SBATCH -p dell_cpu
 # SBATCH --qos=cpu_qos 

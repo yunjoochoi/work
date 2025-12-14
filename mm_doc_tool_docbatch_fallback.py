@@ -242,8 +242,8 @@ class DoclingParser:
             ext = Path(filename).suffix.lower()
             
             if ext in ['.pptx', '.ppt', '.xlsx', '.xls', '.xlsm']:
-                with open(file_path, "rb") as f:
-                    file_bytes = f.read()
+                file_bytes = raw_bytes_map.get(filename)
+                if file_bytes:
                     file_obj = BytesIO(file_bytes)
 
             # Convert to Markdown

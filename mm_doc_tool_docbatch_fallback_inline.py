@@ -169,134 +169,128 @@ class DoclingParser:
         Returns:
             Dictionary mapping filenames to their converted markdown text content
         """
-        # Prepare data (stream list + raw bytes map)
+        # Prepare input streams
         doc_streams, raw_bytes_map = self._input_streams(file_dict)
         results_map = {}
-        processed_files = set()
 
-        try:
-            # Try with default backend
-            conv_results_iter = self.converter.convert_all(doc_streams, raises_on_error=False)
+        print("[Info] Starting Batch Conversion with Immediate Fallback...")
 
-            for result in conv_results_iter:
-                filename = result.input.file.name
-                processed_files.add(filename)
+        # Execute primary batch conversion
+        # raises_on_error = False : the iterator yields failure results instead of crashing.
+        primary_iter = self.converter.convert_all(doc_streams, raises_on_error=False)
 
-                if result.status.name != "SUCCESS":
-                    print(f"[Failed] {filename}: Error during conversion")
-                    continue
+        for result in primary_iter:
+            filename = result.input.file.name
+            
+            # Primary conversion successful
+            if result.status.name == "SUCCESS":
+                self._finalize_result(result, filename, raw_bytes_map, results_map)
+                continue
 
+            # Primary failed -> Analyze errors
+            print(f"[Warning] Primary conversion failed for {filename}.")
+            
+            # Check for "Invalid code point" error.
+            is_target_error = False
+            for err in result.errors:
+                if "Invalid code point" in str(err.error_message):
+                    is_target_error = True
+                    break
+            
+            # Trigger immediate fallback if critical error detected
+            if is_target_error:
+                print(f"[Fallback] triggering PyPdfiumBackend for {filename}...")
+                
                 try:
                     file_bytes = raw_bytes_map.get(filename)
-                    file_obj = BytesIO(file_bytes) if file_bytes else None
+                    if not file_bytes:
+                        print(f"[Error] Bytes missing for {filename}")
+                        continue
 
-                    markdown_text = self._convert_to_markdown(
-                        doc=result.document,
-                        display_name=filename,
-                        file_obj=file_obj
-                    )
+                    retry_stream = DocumentStream(name=filename, stream=BytesIO(file_bytes))
 
-                    results_map[filename] = markdown_text
-                    print(f"[Completed] {filename}")
+                    # Run fallback converter on the single file
+                    fallback_iter = self.fallback_converter.convert_all([retry_stream], raises_on_error=False)
+                    retry_result = next(fallback_iter)
+
+                    if retry_result.status.name == "SUCCESS":
+                        print(f"[Fallback Success] Recovered {filename}")
+                        self._finalize_result(retry_result, filename, raw_bytes_map, results_map)
+                    else:
+                        print(f"[Fallback Failed] {filename} failed again.")
+                        for e in retry_result.errors:
+                            print(f"   - Error: {e.error_message}")
 
                 except Exception as e:
-                    print(f"[Error] {filename} post-processing failed: {e}")
+                    print(f"[Fallback Critical] Error during PyPdfiumBackend: {e}")
                     import traceback
                     traceback.print_exc()
-
-        except Exception as e:
-            # Fallback to PyPdfiumDocumentBackend on "Invalid code point" error
-            if "Invalid code point" in str(e):
-                print(f"[Fallback] Invalid code point detected, retrying failed files with PyPdfiumDocumentBackend")
-
-                # Only retry files that haven't been processed yet
-                failed_files = {k: v for k, v in file_dict.items() if k not in processed_files}
-
-                if failed_files:
-                    doc_streams, raw_bytes_map = self._input_streams(failed_files)
-                    conv_results_iter = self.fallback_converter.convert_all(doc_streams, raises_on_error=False)
-
-                    for result in conv_results_iter:
-                        filename = result.input.file.name
-
-                        if result.status.name != "SUCCESS":
-                            print(f"[Fallback Failed] {filename}")
-                            continue
-
-                        try:
-                            file_bytes = raw_bytes_map.get(filename)
-                            file_obj = BytesIO(file_bytes) if file_bytes else None
-
-                            markdown_text = self._convert_to_markdown(
-                                doc=result.document,
-                                display_name=filename,
-                                file_obj=file_obj
-                            )
-
-                            results_map[filename] = markdown_text
-                            print(f"[Fallback Completed] {filename}")
-
-                        except Exception as e:
-                            print(f"[Fallback Error] {filename}: {e}")
-                            import traceback
-                            traceback.print_exc()
+            
+            # Non-recoverable error
             else:
-                raise
+                print(f"[Failure] {filename} failed with non-recoverable error.")
 
         return results_map
+
+    def _finalize_result(self, result, filename, raw_bytes_map, results_map):
+        """
+        process a successful conversion result (Primary or Fallback).
+        Converts the DoclingDocument to Markdown and stores it in the results map.
+        """
+        try:
+            file_obj = None
+            ext = Path(filename).suffix.lower()
+            
+            if ext in ['.pptx', '.ppt', '.xlsx', '.xls', '.xlsm']:
+                file_bytes = raw_bytes_map.get(filename)
+                if file_bytes:
+                    file_obj = BytesIO(file_bytes)
+
+            # Convert to Markdown
+            markdown_text = self._convert_to_markdown(
+                doc=result.document,
+                display_name=filename,
+                file_obj=file_obj
+            )
+
+            results_map[filename] = markdown_text
+            print(f"[Completed] {filename}")
+
+        except Exception as e:
+            print(f"[Error] Post-processing (Markdown generation) failed for {filename}: {e}")
+            import traceback
+            traceback.print_exc()
 
     def _convert_to_markdown(
         self,
         doc,
         display_name: str,
-        file_obj: BytesIO
+        file_obj: Optional[BytesIO] = None
     ) -> str:
         """
-        Convert parsed document to Markdown text based on file type.
-
-        Dispatches to format-specific processing methods:
-        - PDF: Hybrid processing (Fitz for images/text + Docling for tables)
-        - PPTX: Slide-by-slide with chart extraction (file opened once)
-        - Excel: Sheet-by-sheet with chart extraction (file opened once)
-        - DOCX: Linear document with image extraction
-        - Others: Basic Docling processing
-
-        Args:
-            doc: Docling document object containing parsed content
-            display_name: File name with extension (e.g., "report.pdf")
-            file_obj: BytesIO object containing file data
-
-        Returns:
-            Complete markdown text with appropriate headers and content
+        Dispatch document to appropriate handler based on file extension.
         """
         path_obj = Path(display_name)
         ext = path_obj.suffix.lower()
         file_key = path_obj.stem
 
-        markdown_text = ""
+        handlers = {
+            '.pdf': lambda: self._process_pdf_document(doc, file_key, file_obj),
+            '.pptx': lambda: self._process_pptx_document(doc, file_key, file_obj),
+            '.ppt': lambda: self._process_pptx_document(doc, file_key, file_obj),
+            '.xlsx': lambda: self._process_excel_document(doc, file_key, file_obj),
+            '.xls': lambda: self._process_excel_document(doc, file_key, file_obj),
+            '.xlsm': lambda: self._process_excel_document(doc, file_key, file_obj),
+            '.docx': lambda: self._process_docx_document(doc, file_key),
+            '.doc': lambda: self._process_docx_document(doc, file_key),
+        }
 
-        # PDF: docling
-        if ext == '.pdf':
-            markdown_text = self._process_pdf_document(doc, file_key, file_obj)
-
-        # PPTX: Chart extraction + slide-by-slide processing
-        elif ext in ['.pptx', '.ppt']:
-            markdown_text = self._process_pptx_document(doc, file_key, file_obj)
-
-        # 3. Excel: Sheet names + chart extraction in single pass
-        elif ext in ['.xlsx', '.xls', '.xlsm']:
-            markdown_text = self._process_excel_document(doc, file_key, file_obj)
-
-        # 4. Word: Linear document with image extraction
-        elif ext in ['.docx', '.doc']:
-            markdown_text = self._process_docx_document(doc, file_key)
-
-        # 5. Others: Basic processing (Fallback)
-        else:
+        handler = handlers.get(ext, lambda: self._process_docx_document(doc, file_key))
+        
+        if ext not in handlers:
             print(f"[Info] Unknown format {ext}, using default processing.")
-            markdown_text = self._process_docx_document(doc, file_key)
-
-        return markdown_text.strip()
+            
+        return handler().strip()
 
     def _process_paginated_document(
         self,
@@ -305,9 +299,8 @@ class DoclingParser:
         file_key: str,
     ) -> str:
         """
-        Process a single page from a paginated document (e.g., PDF, Excel).
-
-        Saves page images to page-specific folder (page_XXXX/) and generates markdown for that page.
+        Process a single page from a paginated document.
+        Saves images and ensures Markdown links use relative paths.
 
         Args:
             doc: Docling document object
@@ -321,15 +314,15 @@ class DoclingParser:
         page_folder.mkdir(parents=True, exist_ok=True)
 
         # Save images for this page and update references
-        print(f"  [Saving] Images to {page_folder}")
-        page_doc = doc._with_pictures_refs(
-            image_dir=page_folder,
-            page_no=page_num,
-            reference_path=None,
-        )
-
+        # print(f"  [Saving] Images to {page_folder}")
+        # page_doc = doc._with_pictures_refs(
+        #     image_dir=page_folder,
+        #     page_no=page_num,
+        #     reference_path=None,
+        # )
+        
         # Export page to markdown
-        markdown_output = page_doc.export_to_markdown(
+        markdown_output = doc.export_to_markdown(
             page_no=page_num, image_mode=ImageRefMode.EMBEDDED
         )
 
@@ -356,8 +349,6 @@ class DoclingParser:
     def _process_docx_document(self, doc, file_key: str) -> str:
         """
         Process linear (non-paginated) documents like DOCX, TXT, etc.
-
-        Saves all images to a single images/ folder and generates markdown.
         Used as fallback for unknown document formats.
 
         Args:
@@ -371,12 +362,12 @@ class DoclingParser:
         images_dir.mkdir(parents=True, exist_ok=True) #!
 
         # Save images and update references
-        print(f"  [Saving] Images to {images_dir}") #!
-        new_doc = doc._with_pictures_refs(
-            image_dir=images_dir, page_no=None, reference_path=None
-        )
+        # print(f"  [Saving] Images to {images_dir}") #!
+        # new_doc = doc._with_pictures_refs(
+        #     image_dir=images_dir, page_no=None, reference_path=None
+        # )
 
-        markdown_output = new_doc.export_to_markdown(image_mode=ImageRefMode.EMBEDDED)
+        markdown_output = doc.export_to_markdown(image_mode=ImageRefMode.EMBEDDED)
 
         # Check what files were actually saved
         saved_files = list(images_dir.glob("*")) if images_dir.exists() else [] #!
@@ -885,7 +876,7 @@ class DoclingParser:
             # Remove quotes from sheet name ('Sheet 1' -> Sheet 1)
             sheet_name = sheet_part
             if sheet_name.startswith("'") and sheet_name.endswith("'"):
-                sheet_name = sheet_name[1:-1]  # 양쪽 따옴표 제거
+                sheet_name = sheet_name[1:-1]
                 sheet_name = sheet_name.replace("''", "'")
 
             if sheet_name not in wb.sheetnames:
