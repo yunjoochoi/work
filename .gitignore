@@ -120,8 +120,6 @@ venv.bak/
 # VisualStudioCode
 .vscode/
 
-
-
 bf_docling_output/
 docling_output/
 wo_fitz_docling_output/
