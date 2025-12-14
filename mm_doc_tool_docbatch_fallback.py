@@ -169,93 +169,90 @@ class DoclingParser:
         Returns:
             Dictionary mapping filenames to their converted markdown text content
         """
-        # 1. 데이터 준비
+        # Prepare input streams
         doc_streams, raw_bytes_map = self._input_streams(file_dict)
         results_map = {}
 
         print("[Info] Starting Batch Conversion with Immediate Fallback...")
 
-        # 2. 메인 변환기 실행 (Iterator 생성)
-        # raises_on_error=False: 에러가 나도 멈추지 않고 실패 결과(Result)를 yield 함
+        # Execute primary batch conversion
+        # raises_on_error = False : the iterator yields failure results instead of crashing.
         primary_iter = self.converter.convert_all(doc_streams, raises_on_error=False)
 
-        # 3. 결과 스트림 순회 (Yield 받는 즉시 처리)
         for result in primary_iter:
             filename = result.input.file.name
             
-            # --- [Case 1] 1차 변환 성공 ---
+            # Primary conversion successful
             if result.status.name == "SUCCESS":
                 self._finalize_result(result, filename, raw_bytes_map, results_map)
                 continue
 
-            # --- [Case 2] 1차 변환 실패 -> 에러 분석 ---
-            print(f"[Warning] Primary conversion failed for {filename}. Analyzing errors...")
+            # Primary failed -> Analyze errors
+            print(f"[Warning] Primary conversion failed for {filename}.")
             
-            # "Invalid code point" 에러가 있는지 확인
+            # Check for "Invalid code point" error.
             is_target_error = False
             for err in result.errors:
                 if "Invalid code point" in str(err.error_message):
                     is_target_error = True
                     break
             
-            # --- [Case 3] 폴백 대상이면 즉시 재시도 ---
+            # Trigger immediate fallback if critical error detected
             if is_target_error:
-                print(f"🚨 [Immediate Fallback] triggering PyPdfiumBackend for {filename}...")
+                print(f"[Fallback] triggering PyPdfiumBackend for {filename}...")
                 
                 try:
-                    # 1. 실패한 파일의 원본 바이트 가져오기
                     file_bytes = raw_bytes_map.get(filename)
                     if not file_bytes:
                         print(f"[Error] Bytes missing for {filename}")
                         continue
 
-                    # 2. 해당 파일 1개에 대한 스트림 생성
                     retry_stream = DocumentStream(name=filename, stream=BytesIO(file_bytes))
-                    
-                    # 3. 폴백 컨버터 실행 (리스트로 감싸서 전달)
-                    # convert_all은 iterator를 반환하므로 next()로 첫 번째 결과를 바로 가져옴
+
+                    # Run fallback converter on the single file
                     fallback_iter = self.fallback_converter.convert_all([retry_stream], raises_on_error=False)
                     retry_result = next(fallback_iter)
 
-                    # 4. 재시도 결과 확인
                     if retry_result.status.name == "SUCCESS":
-                        print(f"✅ [Fallback Success] Recovered {filename}")
+                        print(f"[Fallback Success] Recovered {filename}")
                         self._finalize_result(retry_result, filename, raw_bytes_map, results_map)
                     else:
-                        print(f"❌ [Fallback Failed] {filename} failed again.")
-                        # (선택사항) 최종 실패 로그 출력
+                        print(f"[Fallback Failed] {filename} failed again.")
                         for e in retry_result.errors:
                             print(f"   - Error: {e.error_message}")
 
                 except Exception as e:
-                    print(f"❌ [Fallback Critical] Error during retry logic: {e}")
+                    print(f"[Fallback Critical] Error during PyPdfiumBackend: {e}")
                     import traceback
                     traceback.print_exc()
             
-            # --- [Case 4] 폴백 대상이 아니거나 복구 불가능한 에러 ---
+            # Non-recoverable error
             else:
-                print(f"❌ [Failure] {filename} failed with non-recoverable error.")
+                print(f"[Failure] {filename} failed with non-recoverable error.")
 
         return results_map
 
     def _finalize_result(self, result, filename, raw_bytes_map, results_map):
         """
-        Helper method to process a successful conversion result (Primary or Fallback).
+        process a successful conversion result (Primary or Fallback).
         Converts the DoclingDocument to Markdown and stores it in the results map.
         """
         try:
-            # 원본 바이트 가져오기 (이미지 추출 등을 위해 필요)
-            file_bytes = raw_bytes_map.get(filename)
-            file_obj = BytesIO(file_bytes) if file_bytes else None
+            file_obj = None
+            ext = Path(filename).suffix.lower()
+            
+            if ext in ['.pptx', '.ppt', '.xlsx', '.xls', '.xlsm']:
+                with open(file_path, "rb") as f:
+                    file_bytes = f.read()
+                    file_obj = BytesIO(file_bytes)
 
-            # 마크다운 변환 (사용자 정의 메서드 호출)
+            # Convert to Markdown
             markdown_text = self._convert_to_markdown(
                 doc=result.document,
                 display_name=filename,
                 file_obj=file_obj
             )
 
-            # 결과 저장
             results_map[filename] = markdown_text
             print(f"[Completed] {filename}")
 
@@ -268,54 +265,32 @@ class DoclingParser:
         self,
         doc,
         display_name: str,
-        file_obj: BytesIO
+        file_obj: Optional[BytesIO] = None
     ) -> str:
         """
-        Convert parsed document to Markdown text based on file type.
-
-        Dispatches to format-specific processing methods:
-        - PDF: Hybrid processing (Fitz for images/text + Docling for tables)
-        - PPTX: Slide-by-slide with chart extraction (file opened once)
-        - Excel: Sheet-by-sheet with chart extraction (file opened once)
-        - DOCX: Linear document with image extraction
-        - Others: Basic Docling processing
-
-        Args:
-            doc: Docling document object containing parsed content
-            display_name: File name with extension (e.g., "report.pdf")
-            file_obj: BytesIO object containing file data
-
-        Returns:
-            Complete markdown text with appropriate headers and content
+        Dispatch document to appropriate handler based on file extension.
         """
         path_obj = Path(display_name)
         ext = path_obj.suffix.lower()
         file_key = path_obj.stem
 
-        markdown_text = ""
+        handlers = {
+            '.pdf': lambda: self._process_pdf_document(doc, file_key, file_obj),
+            '.pptx': lambda: self._process_pptx_document(doc, file_key, file_obj),
+            '.ppt': lambda: self._process_pptx_document(doc, file_key, file_obj),
+            '.xlsx': lambda: self._process_excel_document(doc, file_key, file_obj),
+            '.xls': lambda: self._process_excel_document(doc, file_key, file_obj),
+            '.xlsm': lambda: self._process_excel_document(doc, file_key, file_obj),
+            '.docx': lambda: self._process_docx_document(doc, file_key),
+            '.doc': lambda: self._process_docx_document(doc, file_key),
+        }
 
-        # PDF: docling
-        if ext == '.pdf':
-            markdown_text = self._process_pdf_document(doc, file_key, file_obj)
-
-        # PPTX: Chart extraction + slide-by-slide processing
-        elif ext in ['.pptx', '.ppt']:
-            markdown_text = self._process_pptx_document(doc, file_key, file_obj)
-
-        # 3. Excel: Sheet names + chart extraction in single pass
-        elif ext in ['.xlsx', '.xls', '.xlsm']:
-            markdown_text = self._process_excel_document(doc, file_key, file_obj)
-
-        # 4. Word: Linear document with image extraction
-        elif ext in ['.docx', '.doc']:
-            markdown_text = self._process_docx_document(doc, file_key)
-
-        # 5. Others: Basic processing (Fallback)
-        else:
+        handler = handlers.get(ext, lambda: self._process_docx_document(doc, file_key))
+        
+        if ext not in handlers:
             print(f"[Info] Unknown format {ext}, using default processing.")
-            markdown_text = self._process_docx_document(doc, file_key)
-
-        return markdown_text.strip()
+            
+        return handler().strip()
 
     def _process_paginated_document(
         self,
@@ -324,9 +299,8 @@ class DoclingParser:
         file_key: str,
     ) -> str:
         """
-        Process a single page from a paginated document (e.g., PDF, Excel).
-
-        Saves page images to page-specific folder (page_XXXX/) and generates markdown for that page.
+        Process a single page from a paginated document.
+        Saves images and ensures Markdown links use relative paths.
 
         Args:
             doc: Docling document object
@@ -375,8 +349,6 @@ class DoclingParser:
     def _process_docx_document(self, doc, file_key: str) -> str:
         """
         Process linear (non-paginated) documents like DOCX, TXT, etc.
-
-        Saves all images to a single images/ folder and generates markdown.
         Used as fallback for unknown document formats.
 
         Args:
@@ -904,7 +876,7 @@ class DoclingParser:
             # Remove quotes from sheet name ('Sheet 1' -> Sheet 1)
             sheet_name = sheet_part
             if sheet_name.startswith("'") and sheet_name.endswith("'"):
-                sheet_name = sheet_name[1:-1]  # 양쪽 따옴표 제거
+                sheet_name = sheet_name[1:-1]
                 sheet_name = sheet_name.replace("''", "'")
 
             if sheet_name not in wb.sheetnames:
