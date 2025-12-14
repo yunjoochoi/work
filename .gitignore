@@ -16,7 +16,7 @@ test/data/doc/constructed_doc*.md
 __pycache__/
 *.py[cod]
 *$py.class
-
+logs_1/
 # C extensions
 *.so
 
