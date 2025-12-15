@@ -3,10 +3,12 @@ import time
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Dict, Optional, List, Tuple
+import multiprocessing
+import torch
 
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling.datamodel.base_models import InputFormat
-from docling.datamodel.pipeline_options import PdfPipelineOptions
+from docling.datamodel.pipeline_options import PdfPipelineOptions, AcceleratorOptions
 from docling_core.types.doc.base import ImageRefMode
 from docling_core.types.io import DocumentStream
 from docling.datamodel.settings import settings
@@ -76,12 +78,13 @@ class DoclingParser:
     - Support for both paginated (PDF) and linear (DOCX) documents
     """
 
-    def __init__(self, config: Optional[ParserConfig] = None):
+    def __init__(self, config: Optional[ParserConfig] = None, gpu_id: Optional[int] = None):
         """
         Initialize the Docling parser with configuration.
 
         Args:
             config: Parser configuration. If None, uses default ParserConfig
+            gpu_id: GPU device ID to use for processing (None for CPU or default GPU)
         """
 
         self.config = config or ParserConfig()
@@ -89,6 +92,13 @@ class DoclingParser:
         settings.perf.doc_batch_size = self.config.doc_batch_size
         settings.perf.doc_batch_concurrency = self.config.doc_batch_concurrency
         pipeline_options = self._create_pipeline_options(self.config)
+
+        # Configure GPU if specified
+        if gpu_id is not None:
+            pipeline_options.accelerator_options = AcceleratorOptions(
+                num_threads=4,
+                device=f"cuda:{gpu_id}"
+            )
 
         # Primary converter with default backend
         self.converter = DocumentConverter(
@@ -862,17 +872,18 @@ class DoclingParser:
 
 class DocTool:
     """
-    High-level document processing tool with simplified interface.
+    High-level document processing tool with Multi-GPU support.
 
     Wraps DoclingParser to provide easy batch processing of multiple documents.
-    Handles various document formats and converts them to Markdown
-    with automatic image extraction.
+    Automatically distributes work across available GPUs using multiprocessing.
     """
 
     def __init__(
         self,
         do_ocr: bool = False,
         do_table_structure: bool = True,
+        gpu_id: Optional[int] = None,
+        is_orchestrator: bool = False
     ):
         """
         Initialize the document processing tool.
@@ -880,83 +891,209 @@ class DocTool:
         Args:
             do_ocr: Whether to perform OCR on images within documents
             do_table_structure: Whether to detect and preserve table structures
+            gpu_id: GPU device ID to use (only for worker processes)
+            is_orchestrator: If True, doesn't load models (used for main process coordination)
         """
-        config = ParserConfig(
+        self.config = ParserConfig(
             do_ocr=do_ocr,
             do_table_structure=do_table_structure,
         )
+        self.gpu_id = gpu_id
 
-        self._parser = DoclingParser(config=config)
+        # Orchestrator process doesn't load heavy models (memory optimization)
+        # Only worker processes or single-process mode initialize the parser
+        if not is_orchestrator:
+            self._parser = DoclingParser(config=self.config, gpu_id=gpu_id)
+        else:
+            self._parser = None
+
+    @staticmethod
+    def _worker_process(gpu_id: int, chunk_dict: Dict[str, BytesIO], config_dict: Dict, return_queue: multiprocessing.Queue):
+        """
+        Static method executed in separate process for parallel GPU processing.
+
+        Args:
+            gpu_id: GPU device ID for this worker
+            chunk_dict: Subset of files for this worker to process
+            config_dict: Configuration dictionary (for pickling)
+            return_queue: Queue to return results to main process
+        """
+        print(f"[Worker-{gpu_id}] Initializing on GPU {gpu_id} with {len(chunk_dict)} files...")
+        try:
+            # 1. Reconstruct configuration
+            config = ParserConfig(**config_dict)
+
+            # 2. Create worker DocTool (loads models here)
+            worker_tool = DocTool(
+                do_ocr=config.do_ocr,
+                do_table_structure=config.do_table_structure,
+                gpu_id=gpu_id,
+                is_orchestrator=False
+            )
+
+            # 3. Execute parsing
+            results = worker_tool._parser.parse(chunk_dict)
+
+            # 4. Return results via Queue
+            return_queue.put(results)
+            print(f"[Worker-{gpu_id}] Finished processing.")
+
+        except Exception as e:
+            print(f"[Worker-{gpu_id}] Error: {e}")
+            import traceback
+            traceback.print_exc()
+            return_queue.put([])  # Return empty list on error
 
     def run(self, file_dict: Dict[str, BytesIO]) -> List[Document]:
         """
         Process multiple documents to Markdown format in batch.
+        Automatically distributes across available GPUs if multiple GPUs detected.
 
         Args:
             file_dict: Dictionary mapping filenames (with extensions) to BytesIO file objects
 
         Returns:
-           a list of Document objects.
+            List of Document objects with text and images
         """
-        # Pass all files at once for batch processing
-        return self._parser.parse(file_dict)
+        num_gpus = torch.cuda.device_count()
+        total_files = len(file_dict)
+
+        # Case 1: Single GPU or fewer files than GPUs - use single process (legacy mode)
+        if num_gpus <= 1 or total_files < num_gpus:
+            if self._parser is None:  # If created as orchestrator, initialize parser now
+                self._parser = DoclingParser(config=self.config, gpu_id=None)
+            return self._parser.parse(file_dict)
+
+        # Case 2: Multi-GPU Processing
+        print(f"[Orchestrator] Distributing {total_files} files across {num_gpus} GPUs...")
+
+        # 1. Split files into chunks
+        file_items = list(file_dict.items())
+        chunk_size = (total_files + num_gpus - 1) // num_gpus
+
+        processes = []
+        result_queue = multiprocessing.Queue()
+
+        # Convert config to dictionary for pickling
+        config_dict = {
+            "do_ocr": self.config.do_ocr,
+            "do_table_structure": self.config.do_table_structure,
+            "generate_picture_images": self.config.generate_picture_images,
+            "images_scale": self.config.images_scale,
+            "layout_batch_size": self.config.layout_batch_size,
+            "table_batch_size": self.config.table_batch_size,
+            "doc_batch_size": self.config.doc_batch_size,
+            "doc_batch_concurrency": self.config.doc_batch_concurrency,
+        }
+
+        for i in range(num_gpus):
+            start_idx = i * chunk_size
+            end_idx = min((i + 1) * chunk_size, total_files)
+
+            if start_idx >= total_files:
+                break
+
+            chunk_files = dict(file_items[start_idx:end_idx])
+
+            # 2. Create process (call static method)
+            p = multiprocessing.Process(
+                target=self._worker_process,
+                args=(i, chunk_files, config_dict, result_queue)
+            )
+            p.start()
+            processes.append(p)
+
+        # 3. Collect results
+        combined_results = []
+        completed_workers = 0
+
+        while completed_workers < len(processes):
+            # Get results from queue (blocking)
+            res = result_queue.get()
+            combined_results.extend(res)
+            completed_workers += 1
+
+        # 4. Wait for all processes to finish
+        for p in processes:
+            p.join()
+
+        return combined_results
 
 
-# ex
+# Example usage with Multi-GPU support
 if __name__ == "__main__":
+    # Set multiprocessing start method (required for CUDA)
+    try:
+        multiprocessing.set_start_method('spawn', force=True)
+    except RuntimeError:
+        pass
+
     input_folder = Path("/home/shaush/pdfs")
     output_root = Path("/home/shaush/work/parsed-outputs")
     log_file_path = output_root / "parsing_log.txt"
-    
+
     output_root.mkdir(parents=True, exist_ok=True)
-    
+
     file_list = [p.resolve() for p in input_folder.iterdir() if p.is_file()]
     print(f"Found {len(file_list)} files.")
 
-    processor = DocTool()
+    # Check available GPUs
+    num_gpus = torch.cuda.device_count()
+    if num_gpus > 0:
+        print(f"Detected {num_gpus} GPU(s). Multi-GPU processing will be used if applicable.")
+    else:
+        print("No GPU detected. Using CPU mode.")
+
+    # Initialize DocTool with orchestrator mode for multi-GPU processing
+    processor = DocTool(is_orchestrator=True)
 
     file_dict = {}
     for file_path in file_list:
         with open(file_path, "rb") as f:
             file_dict[file_path.name] = BytesIO(f.read())
-            
+
     print("Processing started... (Logs will be saved to parsing_log.txt)")
     start_time = time.perf_counter()
-    
+
     results = processor.run(file_dict)
-    
+
     total_time = time.perf_counter() - start_time
     print(f"Total parsing time: {total_time:.2f} seconds")
+    print(f"Average time per file: {total_time/len(results):.2f} seconds")
 
     with open(log_file_path, "w", encoding="utf-8") as log_file:
-        log_file.write(f"Batch Processing Report\n")
+        log_file.write(f"Batch Processing Report (Multi-GPU)\n")
         log_file.write(f"Total Files: {len(results)}\n")
         log_file.write(f"Total Time: {total_time:.2f}s\n")
+        log_file.write(f"GPUs Used: {num_gpus if num_gpus > 0 else 'CPU only'}\n")
         log_file.write("="*50 + "\n")
 
         for doc in results:
             filename = doc.id
-            
-            md_content = doc.text 
-            
+
+            md_content = doc.text
+
             save_name = Path(filename).stem + ".md"
             save_path = output_root / save_name
-            
-            # Markdown 파일 저장
+
+            # Save Markdown file
             try:
                 with open(save_path, "w", encoding="utf-8") as f:
                     f.write(md_content)
-                
-                log_msg = f"[Success] {filename} | Images extracted: {len(doc.images)}"
-                log_file.write(log_msg + "\n"+ "doc.id: "+ doc.id+ "doc.text"+ doc.text[:30])
-                doc.id
+
+                log_msg = f"[Success] {filename} | Images extracted: {len(doc.images) if doc.images else 0}"
+                log_file.write(log_msg + "\n")
+                log_file.write(f"   - doc.id: {doc.id}\n")
+                log_file.write(f"   - doc.text preview: {doc.text[:100]}...\n")
+
                 if doc.images:
                     first_img = doc.images[0]
-                    log_file.write(f"   - Sample Image ID: {first_img.id} ({first_img.mime_type}) ({first_img.data[:30]})\n")
+                    log_file.write(f"   - Sample Image ID: {first_img.id} ({first_img.mime_type})\n")
+                    log_file.write(f"   - Image data length: {len(first_img.data)} bytes\n")
 
             except Exception as e:
                 err_msg = f"[Failed] {filename}: {e}"
-                print(err_msg) 
+                print(err_msg)
                 log_file.write(err_msg + "\n")
 
     print(f"Done! Results saved in '{output_root}'")
