@@ -60,13 +60,13 @@ class ParserConfig:
     images_scale: float = 2.0  # Scale factor for generated images
 
     # Maximum number of pages the RT-DETR model processes in parallel in a single inference pass
-    layout_batch_size: int = 4
+    layout_batch_size: int = 16
     # Maximum number of table images that the TableFormer model
-    table_batch_size: int = 4
+    table_batch_size: int = 16
 
     # Batch processing settings
-    doc_batch_size: int = 1  # Number of documents processed at once
-    doc_batch_concurrency: int = 1  # Number of concurrent workers
+    doc_batch_size: int = 4  # Number of documents processed at once
+    doc_batch_concurrency: int = 4  # Number of concurrent workers
 
 class DoclingParser:
     """
@@ -920,10 +920,10 @@ class DocTool:
         """
         print(f"[Worker-{gpu_id}] Initializing on GPU {gpu_id} with {len(chunk_dict)} files...")
         try:
-            # 1. Reconstruct configuration
+            # Reconstruct configuration
             config = ParserConfig(**config_dict)
 
-            # 2. Create worker DocTool (loads models here)
+            # Create worker DocTool (loads models here)
             worker_tool = DocTool(
                 do_ocr=config.do_ocr,
                 do_table_structure=config.do_table_structure,
@@ -931,10 +931,10 @@ class DocTool:
                 is_orchestrator=False
             )
 
-            # 3. Execute parsing
+            # Execute parsing
             results = worker_tool._parser.parse(chunk_dict)
 
-            # 4. Return results via Queue
+            # Return results via Queue
             return_queue.put(results)
             print(f"[Worker-{gpu_id}] Finished processing.")
 
@@ -958,16 +958,16 @@ class DocTool:
         num_gpus = torch.cuda.device_count()
         total_files = len(file_dict)
 
-        # Case 1: Single GPU or fewer files than GPUs - use single process (legacy mode)
+        # Single GPU or fewer files than GPUs -> use single process
         if num_gpus <= 1 or total_files < num_gpus:
-            if self._parser is None:  # If created as orchestrator, initialize parser now
+            if self._parser is None:
                 self._parser = DoclingParser(config=self.config, gpu_id=None)
             return self._parser.parse(file_dict)
 
-        # Case 2: Multi-GPU Processing
+        # Multi-GPU Processing
         print(f"[Orchestrator] Distributing {total_files} files across {num_gpus} GPUs...")
 
-        # 1. Split files into chunks
+        # Split files into chunks
         file_items = list(file_dict.items())
         chunk_size = (total_files + num_gpus - 1) // num_gpus
 
@@ -995,7 +995,7 @@ class DocTool:
 
             chunk_files = dict(file_items[start_idx:end_idx])
 
-            # 2. Create process (call static method)
+            # Create process 
             p = multiprocessing.Process(
                 target=self._worker_process,
                 args=(i, chunk_files, config_dict, result_queue)
@@ -1003,17 +1003,16 @@ class DocTool:
             p.start()
             processes.append(p)
 
-        # 3. Collect results
+        # Collect results
         combined_results = []
         completed_workers = 0
 
         while completed_workers < len(processes):
-            # Get results from queue (blocking)
+            # Get results from queue
             res = result_queue.get()
             combined_results.extend(res)
             completed_workers += 1
 
-        # 4. Wait for all processes to finish
         for p in processes:
             p.join()
 

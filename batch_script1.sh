@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=docling_parser 
 #SBATCH -p suma_A6000
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:4
 #SBATCH --cpus-per-task=16        
 #SBATCH --output=logs_1/out_%j.out 
 #SBATCH --error=logs_1/err_%j.err
@@ -14,13 +14,13 @@ echo "64"
 
 
 # thread threshold (CPU)
-# export OMP_NUM_THREADS=4
-# export MKL_NUM_THREADS=4
-# export TORCH_NUM_THREADS=4
+export OMP_NUM_THREADS=4
+export MKL_NUM_THREADS=4
+export TORCH_NUM_THREADS=4
 
 cd work
 source .venv/bin/activate
-python -u mm_doc_tool_docbatch_fallback_inline.py
+python -u mm_doc_tool_docbatch_fallback_figureclass_multiGPU.py
 
 # SBATCH -p dell_cpu
 # SBATCH --qos=cpu_qos 
