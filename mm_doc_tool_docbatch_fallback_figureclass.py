@@ -108,9 +108,6 @@ class DoclingParser:
             }
         )
 
-        self.regions_dir = Path(self.config.regions_dir)
-        self.regions_dir.mkdir(parents=True, exist_ok=True)
-
     @staticmethod
     def _create_pipeline_options(config: ParserConfig) -> PdfPipelineOptions:
         """
@@ -873,7 +870,6 @@ class DocTool:
 
     def __init__(
         self,
-        regions_dir: Optional[str] = None,
         do_ocr: bool = False,
         do_table_structure: bool = True,
     ):
@@ -881,12 +877,10 @@ class DocTool:
         Initialize the document processing tool.
 
         Args:
-            regions_dir: Base directory for storing extracted images (default: "media/regions")
             do_ocr: Whether to perform OCR on images within documents
             do_table_structure: Whether to detect and preserve table structures
         """
         config = ParserConfig(
-            regions_dir=regions_dir or "media/regions",
             do_ocr=do_ocr,
             do_table_structure=do_table_structure,
         )
@@ -918,8 +912,8 @@ if __name__ == "__main__":
     file_list = [p.resolve() for p in input_folder.iterdir() if p.is_file()]
     print(f"Found {len(file_list)} files.")
 
-    processor = DocTool(regions_dir=str(output_root))
-    
+    processor = DocTool()
+
     file_dict = {}
     for file_path in file_list:
         with open(file_path, "rb") as f:
