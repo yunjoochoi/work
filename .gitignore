@@ -19,6 +19,7 @@ __pycache__/
 logs_1/
 # C extensions
 *.so
+parsed-outputs-origin/
 
 # Distribution / packaging
 .Python
