@@ -58,13 +58,13 @@ class ParserConfig:
     images_scale: float = 2.0  # Scale factor for generated images
 
     # Maximum number of pages the RT-DETR model processes in parallel in a single inference pass
-    layout_batch_size: int = 4
+    layout_batch_size: int = 16
     # Maximum number of table images that the TableFormer model
-    table_batch_size: int = 4
+    table_batch_size: int = 16
 
     # Batch processing settings
-    doc_batch_size: int = 1  # Number of documents processed at once
-    doc_batch_concurrency: int = 1  # Number of concurrent workers
+    doc_batch_size: int = 8  # Number of documents processed at once
+    doc_batch_concurrency: int = 4  # Number of concurrent workers
 
 class DoclingParser:
     """
