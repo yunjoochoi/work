@@ -904,8 +904,8 @@ class DocTool:
 
 # ex
 if __name__ == "__main__":
-    input_folder = Path("/home/shaush/pdfs")
-    output_root = Path("/home/shaush/work/parsed-outputs")
+    input_folder = Path("/home/coder/project/yjchoi/docling_parser/pdf")
+    output_root = Path("/home/coder/project/yjchoi/docling_parser/work/parsed-outputs")
     log_file_path = output_root / "parsing_log.txt"
     
     output_root.mkdir(parents=True, exist_ok=True)
@@ -948,10 +948,12 @@ if __name__ == "__main__":
                     f.write(md_content)
                 
                 log_msg = f"[Success] {filename} | Images extracted: {len(doc.images)}"
-                log_file.write(log_msg + "\n"+ "doc.id: "+ doc.id+ "doc.text"+ doc.text[:30])
+                log_file.write(log_msg + "\n"+ "doc.id: "+ doc.id+ "doc.text"+ "\n"+ doc.text[:30]+ "\n")
                 doc.id
                 if doc.images:
                     first_img = doc.images[0]
+                    log_file.write(f"first_img obj: {first_img} \n")
+                    log_file.write(f"doc obj: {doc} \n")
                     log_file.write(f"   - Sample Image ID: {first_img.id} ({first_img.mime_type}) ({first_img.data[:30]})\n")
 
             except Exception as e:
