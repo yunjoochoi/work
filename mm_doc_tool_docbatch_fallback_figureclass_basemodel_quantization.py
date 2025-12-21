@@ -1,16 +1,31 @@
+# uv add psutil torch pikepdf
+import os
 import shutil
 import time
-from io import BytesIO
+import math
+import tempfile
+import multiprocessing
+import traceback
+import gc
+import torch
 from pathlib import Path
-from typing import Any, Dict, Optional, List, Tuple
+from io import BytesIO
+from typing import List, Dict, Any, Tuple, Optional
+from dataclasses import dataclass, field
+from queue import Empty
 
+# PDF Chunking
+from pypdf import PdfReader, PdfWriter
+
+# Docling & Models
+from pydantic import BaseModel, Field
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling.datamodel.base_models import InputFormat
-from docling.datamodel.pipeline_options import PdfPipelineOptions
+from docling.datamodel.pipeline_options import PdfPipelineOptions, AcceleratorOptions
+from docling.datamodel.settings import settings
 from docling_core.types.doc.base import ImageRefMode
 from docling_core.types.io import DocumentStream
-from docling.datamodel.settings import settings
-from docling_core.types.doc.document import PictureItem
+from docling_core.types.doc import PictureItem
 from docling.backend.pypdfium2_backend import PyPdfiumDocumentBackend
 
 from pydantic import BaseModel, Field
@@ -22,19 +37,29 @@ import pandas as pd
 import re
 
 
+
 class Figure(BaseModel):
     id: str                         # Image ID for placeholder and figure reference
     mime_type: str                  # MIME type (e.g., "image/png", "image/jpg")
     data: str                       # Base64-encoded image data
- 
  
 class Document(BaseModel):
     id: str
     text: str
     images: Optional[List[Figure]] = Field(default=None)
 
-
-class ParserConfig(BaseModel):
+@dataclass
+class ChunkResult:
+    """내부 처리용: 청크 단위 결과"""
+    original_file_id: str
+    chunk_index: int
+    text: str
+    images: List[Figure]
+    success: bool
+    error_msg: Optional[str] = None
+    
+@dataclass
+class ParserConfig:
     """
     Configuration dataclass for DoclingParser.
 
@@ -51,17 +76,75 @@ class ParserConfig(BaseModel):
 
     do_ocr: bool = False
     do_table_structure: bool = True  # Enable table structure detection
+    do_formula_enrichment: bool = True  # Enable formula enrichment
     generate_picture_images: bool = True  # Enable picture image generation
     images_scale: float = 2.0  # Scale factor for generated images
 
-    # Maximum number of pages the RT-DETR model processes in parallel in a single inference pass
-    layout_batch_size: int = 16
-    # Maximum number of table images that the TableFormer model
-    table_batch_size: int = 16
+    # Model Batch Sizes (GPU Inference Batch)
+    layout_batch_size: int = 16 # layout heroin
+    table_batch_size: int = 16  # TableFormer
 
-    # Batch processing settings
-    doc_batch_size: int = 8  # Number of documents processed at once
-    doc_batch_concurrency: int = 1  # Number of concurrent workers
+    # Batch processing settings 
+    doc_batch_size: int = 8           # (now it refers to number of chunks when it comes to pdfs) Number of documents processed at once -> 문서 처리가 청크 단위로 바뀌어서 제거
+    doc_batch_concurrency: int = 1    # setting this to 1. Number of concurrent workers in a process 문서(청크) 하나 처리에 달라붙는 워커 수
+
+    # Batch & Resource Settings
+    chunk_page_size: int = 10          # Number of pages per chunk
+    worker_restart_interval: int = 20  # Restart worker after processing N chunks (Anti-Leak)
+    
+    # CPU specific
+    cpu_workers: int = 4               # Number of processes if no GPU
+
+
+def _split_pdf_to_chunks(
+    file_id: str,
+    pdf_bytes: bytes,
+    chunk_page_size: int
+) -> List[Tuple[str, int, BytesIO]]:
+    """
+    Split a PDF file into page chunks.
+
+    Args:
+        file_id: Original filename
+        pdf_bytes: PDF file content in bytes
+        chunk_page_size: Number of pages per chunk
+
+    Returns:
+        List of tuples (chunk_filename, chunk_index, chunk_bytesio)
+    """
+    chunks = []
+
+    try:
+        reader = PdfReader(BytesIO(pdf_bytes))
+        total_pages = len(reader.pages)
+
+        num_chunks = (total_pages + chunk_page_size - 1) // chunk_page_size
+
+        for chunk_idx in range(num_chunks):
+            start_page = chunk_idx * chunk_page_size
+            end_page = min(start_page + chunk_page_size, total_pages)
+
+            # Create chunk PDF
+            writer = PdfWriter()
+            for page_num in range(start_page, end_page):
+                writer.add_page(reader.pages[page_num])
+
+            # Write to BytesIO
+            chunk_stream = BytesIO()
+            writer.write(chunk_stream)
+            chunk_stream.seek(0)
+
+            # Generate chunk filename
+            chunk_filename = f"{file_id}__chunk_{chunk_idx:04d}.pdf"
+
+            chunks.append((chunk_filename, chunk_idx, chunk_stream))
+
+    except Exception as e:
+        print(f"[Error] Failed to split PDF {file_id}: {e}")
+        traceback.print_exc()
+
+    return chunks
+
 
 class DoclingParser:
     """
@@ -73,21 +156,30 @@ class DoclingParser:
     - Support for both paginated (PDF) and linear (DOCX) documents
     """
 
-    def __init__(self, config: Optional[ParserConfig] = None):
+    def __init__(self, config: Optional[ParserConfig] = None, gpu_id: Optional[int] = None):
         """
         Initialize the Docling parser with configuration.
 
         Args:
             config: Parser configuration. If None, uses default ParserConfig
+            gpu_id: GPU device ID to use for processing (None for CPU or default GPU)
         """
 
         self.config = config or ParserConfig()
+        self.gpu_id = gpu_id
 
-        settings.perf.doc_batch_size = self.config.doc_batch_size
         settings.perf.doc_batch_concurrency = self.config.doc_batch_concurrency
         pipeline_options = self._create_pipeline_options(self.config)
 
+        # Configure GPU if specified
+        if gpu_id is not None:
+            pipeline_options.accelerator_options = AcceleratorOptions(
+                num_threads=4,
+                device=f"cuda:{gpu_id}"
+            )
+
         # Primary converter with default backend
+        # Current PDF Backend: <class 'docling.backend.docling_parse_v4_backend.DoclingParseV4DocumentBackend'>
         self.converter = DocumentConverter(
             format_options={
                 InputFormat.PDF: PdfFormatOption(
@@ -95,6 +187,10 @@ class DoclingParser:
                 )
             }
         )
+        # PDF 포맷을 담당하는 백엔드 객체 가져오기
+        pdf_backend = self.converter.format_to_options.get(InputFormat.PDF)
+        print(f"Current PDF Backend: {pdf_backend.backend}")
+
 
         # Fallback converter with PyPdfiumDocumentBackend for handling "Invalid code point" errors
         self.fallback_converter = DocumentConverter(
@@ -121,6 +217,7 @@ class DoclingParser:
 
         options.do_ocr = config.do_ocr
         options.do_table_structure = config.do_table_structure
+        options.do_formula_enrichment = config.do_formula_enrichment
         options.generate_picture_images = config.generate_picture_images
         options.images_scale = config.images_scale
 
@@ -156,6 +253,7 @@ class DoclingParser:
     def parse(
         self,
         file_dict: Dict[str, BytesIO],
+        page_offset: int = 0
     ) -> Dict[str, str]:
         """
         Parse multiple document files to Markdown format with image extraction in batch.
@@ -169,6 +267,7 @@ class DoclingParser:
 
         Args:
             file_dict: Dictionary mapping filenames (with extensions) to BytesIO file objects
+            page_offset: Page number offset for PDF chunks (maintains original page numbers)
 
         Returns:
             Dictionary mapping filenames to their converted markdown text content
@@ -185,10 +284,10 @@ class DoclingParser:
 
         for result in primary_iter:
             filename = result.input.file.name
-            
+
             # Primary conversion successful
             if result.status.name == "SUCCESS":
-                self._finalize_result(result, filename, raw_bytes_map, results_map)
+                self._finalize_result(result, filename, raw_bytes_map, results_map, page_offset)
                 continue
 
             # Primary failed -> Analyze errors
@@ -219,7 +318,7 @@ class DoclingParser:
 
                     if retry_result.status.name == "SUCCESS":
                         print(f"[Fallback Success] Recovered {filename}")
-                        self._finalize_result(retry_result, filename, raw_bytes_map, results_map)
+                        self._finalize_result(retry_result, filename, raw_bytes_map, results_map, page_offset)
                     else:
                         print(f"[Fallback Failed] {filename} failed again.")
                         for e in retry_result.errors:
@@ -236,7 +335,7 @@ class DoclingParser:
 
         return list(results_map.values())
 
-    def _finalize_result(self, result, filename, raw_bytes_map, results_map):
+    def _finalize_result(self, result, filename, raw_bytes_map, results_map, page_offset=0):
         try:
             # Prepare file object for formats that need it
             file_obj = None
@@ -250,7 +349,8 @@ class DoclingParser:
             markdown_text, figures = self._convert_to_document_content(
                 doc=result.document,
                 display_name=filename,
-                file_obj=file_obj
+                file_obj=file_obj,
+                page_offset=page_offset
             )
 
             # Create Document object and store in results map
@@ -269,20 +369,21 @@ class DoclingParser:
             import traceback
             traceback.print_exc()
 
-    def _extract_figures_and_patch_doc(self, doc, file_key: str) -> List[Figure]:
+    def _extract_figures_and_patch_doc(self, doc, file_key: str, page_offset: int = 0) -> List[Figure]:
         figures = []
         for item, _ in doc.iterate_items():
             if isinstance(item, PictureItem):
                 img = item.get_image(doc=doc)
                 if img:
-                    # Generate unique image ID
+                    # Generate unique image ID with original page numbering
                     page_no = item.prov[0].page_no if item.prov else 0
+                    actual_page_no = page_no + page_offset  # Apply offset for chunks
                     self_ref = item.self_ref.replace("#/", "").replace("/", "_")
                     if page_no == 0:
                         img_id = f"{file_key}/images/{self_ref}.png"
                     else:
-                        page_no = f"{page_no:04d}"
-                        img_id = f"{file_key}/page_{page_no}/{self_ref}.png"
+                        actual_page_no_str = f"{actual_page_no:04d}"
+                        img_id = f"{file_key}/page_{actual_page_no_str}/{self_ref}.png"
 
                     # Create Figure object with Base64 data
                     figures.append(Figure(
@@ -300,7 +401,8 @@ class DoclingParser:
         self,
         doc,
         display_name: str,
-        file_obj: Optional[BytesIO] = None
+        file_obj: Optional[BytesIO] = None,
+        page_offset: int = 0
     ) -> Tuple[str, List[Figure]]:
 
         path_obj = Path(display_name)
@@ -309,47 +411,49 @@ class DoclingParser:
 
         # Handlers return (text, figures) tuple
         handlers = {
-            '.pdf': lambda: self._process_pdf_document(doc, file_key, file_obj),
-            '.pptx': lambda: self._process_pptx_document(doc, file_key, file_obj),
-            '.ppt': lambda: self._process_pptx_document(doc, file_key, file_obj),
-            '.xlsx': lambda: self._process_excel_document(doc, file_key, file_obj),
-            '.xls': lambda: self._process_excel_document(doc, file_key, file_obj),
-            '.xlsm': lambda: self._process_excel_document(doc, file_key, file_obj),
-            '.docx': lambda: self._process_docx_document(doc, file_key),
-            '.doc': lambda: self._process_docx_document(doc, file_key),
+            '.pdf': lambda: self._process_pdf_document(doc, file_key, file_obj, page_offset),
+            '.pptx': lambda: self._process_pptx_document(doc, file_key, file_obj, page_offset),
+            '.ppt': lambda: self._process_pptx_document(doc, file_key, file_obj, page_offset),
+            '.xlsx': lambda: self._process_excel_document(doc, file_key, file_obj, page_offset),
+            '.xls': lambda: self._process_excel_document(doc, file_key, file_obj, page_offset),
+            '.xlsm': lambda: self._process_excel_document(doc, file_key, file_obj, page_offset),
+            '.docx': lambda: self._process_docx_document(doc, file_key, page_offset),
+            '.doc': lambda: self._process_docx_document(doc, file_key, page_offset),
         }
 
-        handler = handlers.get(ext, lambda: self._process_docx_document(doc, file_key))
+        handler = handlers.get(ext, lambda: self._process_docx_document(doc, file_key, page_offset))
 
         text, figures = handler()
         return text.strip(), figures
 
-    def _process_pdf_document(self, doc, file_key: str, file_obj: BytesIO) -> Tuple[str, List[Figure]]:
+    def _process_pdf_document(self, doc, file_key: str, file_obj: BytesIO, page_offset: int = 0) -> Tuple[str, List[Figure]]:
         # Extract images and patch document
-        all_figures = self._extract_figures_and_patch_doc(doc, file_key)
+        all_figures = self._extract_figures_and_patch_doc(doc, file_key, page_offset)
 
         markdown_parts = []
         # Generate markdown with REFERENCED mode
         for page_num in range(1, doc.num_pages() + 1):
             page_md = doc.export_to_markdown(
-                page_no=page_num, 
+                page_no=page_num,
                 image_mode=ImageRefMode.REFERENCED
             )
-            markdown_parts.append(f"\n\n- Page {page_num} -\n\n{page_md.strip()}")
-            
+            # Apply page offset to maintain original page numbering
+            actual_page_num = page_num + page_offset
+            markdown_parts.append(f"\n\n- Page {actual_page_num} -\n\n{page_md.strip()}")
+
         return "".join(markdown_parts), all_figures
 
-    def _process_docx_document(self, doc, file_key: str) -> Tuple[str, List[Figure]]:
+    def _process_docx_document(self, doc, file_key: str, page_offset: int = 0) -> Tuple[str, List[Figure]]:
         # Extract images and patch document
-        figures = self._extract_figures_and_patch_doc(doc, file_key)
+        figures = self._extract_figures_and_patch_doc(doc, file_key, page_offset)
 
         # Generate markdown
         text = doc.export_to_markdown(image_mode=ImageRefMode.REFERENCED)
         return text, figures
 
-    def _process_pptx_document(self, doc, file_key: str, file_obj: BytesIO) -> Tuple[str, List[Figure]]:
+    def _process_pptx_document(self, doc, file_key: str, file_obj: BytesIO, page_offset: int = 0) -> Tuple[str, List[Figure]]:
         # Extract images and patch document
-        all_figures = self._extract_figures_and_patch_doc(doc, file_key)
+        all_figures = self._extract_figures_and_patch_doc(doc, file_key, page_offset)
 
         # Extract charts
         charts_by_page = self._extract_charts_from_pptx(file_obj)
@@ -357,20 +461,22 @@ class DoclingParser:
         markdown_parts = []
         for page_num in range(1, doc.num_pages() + 1):
             page_text = doc.export_to_markdown(
-                page_no=page_num, 
+                page_no=page_num,
                 image_mode=ImageRefMode.REFERENCED
             )
-            
+
             if page_num in charts_by_page:
                 page_text = self._insert_charts_at_position(page_text, charts_by_page[page_num])
 
-            markdown_parts.append(f"\n\n- Slide {page_num} -\n\n{page_text.strip()}")
+            # Apply page offset to maintain original slide numbering
+            actual_page_num = page_num + page_offset
+            markdown_parts.append(f"\n\n- Slide {actual_page_num} -\n\n{page_text.strip()}")
 
         return "".join(markdown_parts), all_figures
 
-    def _process_excel_document(self, doc, file_key: str, file_obj: BytesIO) -> Tuple[str, List[Figure]]:
+    def _process_excel_document(self, doc, file_key: str, file_obj: BytesIO, page_offset: int = 0) -> Tuple[str, List[Figure]]:
         # Extract images and patch document
-        all_figures = self._extract_figures_and_patch_doc(doc, file_key)
+        all_figures = self._extract_figures_and_patch_doc(doc, file_key, page_offset)
 
         sheet_names, charts_by_page = self._extract_excel_metadata(file_obj)
         markdown_parts = []
@@ -381,11 +487,14 @@ class DoclingParser:
                 image_mode=ImageRefMode.REFERENCED
             )
 
+            # Apply page offset to sheet numbering
+            actual_page_num = page_num + page_offset
+
             # Add sheet header
             if (page_num - 1) < len(sheet_names):
-                header = f"\n\n- Sheet: {sheet_names[page_num - 1]} -\n\n"
+                header = f"\n\n- Sheet: {sheet_names[page_num - 1]} (Page {actual_page_num}) -\n\n"
             else:
-                header = f"\n\n- Sheet {page_num} -\n\n"
+                header = f"\n\n- Sheet {actual_page_num} -\n\n"
 
             if page_num in charts_by_page:
                 page_text = self._insert_charts_at_position(page_text, charts_by_page[page_num])
@@ -857,19 +966,246 @@ class DoclingParser:
             print(f"Error parsing reference ({ref_str}): {e}")
             return []
 
+
+def _chunk_worker_process(
+    worker_id: int,
+    gpu_id: Optional[int],
+    task_queue: multiprocessing.Queue,
+    result_queue: multiprocessing.Queue,
+    config_dict: Dict[str, Any],
+    worker_restart_interval: int,
+    cpus_per_worker: Optional[int] = None
+):
+    """
+    Worker process that processes document chunks from a queue.
+
+    Args:
+        worker_id: Unique worker identifier
+        gpu_id: GPU device ID (None for CPU)
+        task_queue: Queue containing (chunk_filename, chunk_index, original_file_id, chunk_bytes, file_bytes_for_chart)
+        result_queue: Queue for returning ChunkResult objects
+        config_dict: Configuration dictionary
+        worker_restart_interval: Number of chunks to process before self-termination
+        cpus_per_worker: Number of CPUs to assign to this worker (CPU mode only)
+    """
+    device_str = f"GPU-{gpu_id}" if gpu_id is not None else f"CPU-{worker_id}"
+    print(f"[Worker-{device_str}] Starting worker process...")
+
+    # Set CPU affinity for CPU-only workers (SLURM/Docker safe)
+    if gpu_id is None and cpus_per_worker is not None and cpus_per_worker > 0:
+        try:
+            # Get currently allowed CPUs (respects SLURM/cgroup limits)
+            allowed_cpus = sorted(os.sched_getaffinity(0))
+            total_allowed = len(allowed_cpus)
+
+            if total_allowed >= cpus_per_worker:
+                # Calculate this worker's CPU slice
+                start_idx = worker_id * cpus_per_worker
+                end_idx = min(start_idx + cpus_per_worker, total_allowed)
+
+                # Assign CPU subset
+                cpu_set = set(allowed_cpus[start_idx:end_idx])
+                os.sched_setaffinity(0, cpu_set)
+                print(f"[Worker-{device_str}] Set CPU affinity to: {sorted(cpu_set)}")
+            else:
+                print(f"[Worker-{device_str}] Warning: Not enough CPUs ({total_allowed}) for requested affinity ({cpus_per_worker})")
+        except Exception as e:
+            print(f"[Worker-{device_str}] Failed to set CPU affinity: {e}")
+
+    try:
+        # Reconstruct config
+        config = ParserConfig(**config_dict)
+
+        # Initialize parser with GPU assignment
+        parser = DoclingParser(config=config, gpu_id=gpu_id)
+
+        chunks_processed = 0
+
+        while True:
+            try:
+                # Get task from queue with timeout
+                task = task_queue.get(timeout=5)
+
+                if task is None:  # Poison pill to terminate worker
+                    print(f"[Worker-{device_str}] Received termination signal.")
+                    break
+
+                chunk_filename, chunk_index, original_file_id, chunk_bytes, _file_bytes_for_chart, page_offset = task
+
+                print(f"[Worker-{device_str}] Processing chunk {chunk_index} from {original_file_id} (page offset: {page_offset})")
+
+                # Process chunk with page offset for correct page numbering
+                file_dict = {chunk_filename: BytesIO(chunk_bytes)}
+                doc_list = parser.parse(file_dict, page_offset=page_offset)
+                
+                if doc_list and len(doc_list) > 0:
+                    doc = doc_list[0]
+
+                    # Create ChunkResult
+                    chunk_result = ChunkResult(
+                        original_file_id=original_file_id,
+                        chunk_index=chunk_index,
+                        text=doc.text,
+                        images=doc.images if doc.images else [],
+                        success=True,
+                        error_msg=None
+                    )
+                    print(f"[Worker-{device_str}] {chunk_filename} processed: {total_time:.2f} seconds")
+                else:
+                    chunk_result = ChunkResult(
+                        original_file_id=original_file_id,
+                        chunk_index=chunk_index,
+                        text="",
+                        images=[],
+                        success=False,
+                        error_msg="No document returned from parser"
+                    )
+                    print(f"[Worker-{device_str}] {chunk_filename} failed: {total_time:.2f} seconds")
+
+                result_queue.put(chunk_result)
+                chunks_processed += 1
+
+                # Self-restart mechanism
+                if chunks_processed >= worker_restart_interval:
+                    print(f"[Worker-{device_str}] Reached restart interval ({chunks_processed} chunks). Terminating...")
+                    break
+
+            except Empty:
+                continue
+            except Exception as e:
+                print(f"[Worker-{device_str}] Error processing chunk: {e}")
+                traceback.print_exc()
+
+                # Return error result
+                if 'chunk_index' in locals() and 'original_file_id' in locals():
+                    error_result = ChunkResult(
+                        original_file_id=original_file_id,
+                        chunk_index=chunk_index,
+                        text="",
+                        images=[],
+                        success=False,
+                        error_msg=str(e)
+                    )
+                    result_queue.put(error_result)
+
+    except Exception as e:
+        print(f"[Worker-{device_str}] Fatal error in worker: {e}")
+        traceback.print_exc()
+
+    finally:
+        print(f"[Worker-{device_str}] Worker process terminating (processed {chunks_processed} chunks)")
+
+
+class WorkerManager:
+    """
+    Manages worker processes and handles automatic restart on interval.
+    """
+
+    def __init__(
+        self,
+        num_workers: int,
+        gpu_ids: Optional[List[int]],
+        config_dict: Dict[str, Any],
+        worker_restart_interval: int,
+        cpus_per_worker: Optional[int] = None
+    ):
+        """
+        Args:
+            num_workers: Number of worker processes
+            gpu_ids: List of GPU IDs (None for CPU-only mode)
+            config_dict: Configuration dictionary
+            worker_restart_interval: Chunks per worker before restart
+            cpus_per_worker: CPUs to assign per worker (CPU mode only)
+        """
+        self.num_workers = num_workers
+        self.gpu_ids = gpu_ids
+        self.config_dict = config_dict
+        self.worker_restart_interval = worker_restart_interval
+        self.cpus_per_worker = cpus_per_worker
+
+        self.task_queue = multiprocessing.Queue()
+        self.result_queue = multiprocessing.Queue()
+
+        self.processes: List[multiprocessing.Process] = []
+
+    def start_workers(self):
+        """Start all worker processes."""
+        for i in range(self.num_workers):
+            gpu_id = self.gpu_ids[i] if self.gpu_ids else None
+            self._start_single_worker(i, gpu_id)
+
+    def _start_single_worker(self, worker_id: int, gpu_id: Optional[int]):
+        """Start a single worker process."""
+        p = multiprocessing.Process(
+            target=_chunk_worker_process,
+            args=(
+                worker_id,
+                gpu_id,
+                self.task_queue,
+                self.result_queue,
+                self.config_dict,
+                self.worker_restart_interval,
+                self.cpus_per_worker
+            )
+        )
+        p.start()
+        self.processes.append(p)
+
+    def restart_worker(self, worker_id: int, gpu_id: Optional[int]):
+        """Restart a specific worker."""
+        if worker_id < len(self.processes):
+            old_process = self.processes[worker_id]
+            if old_process.is_alive():
+                old_process.terminate()
+                old_process.join(timeout=5)
+
+            # Start new worker process
+            p = multiprocessing.Process(
+                target=_chunk_worker_process,
+                args=(
+                    worker_id,
+                    gpu_id,
+                    self.task_queue,
+                    self.result_queue,
+                    self.config_dict,
+                    self.worker_restart_interval,
+                    self.cpus_per_worker
+                )
+            )
+            p.start()
+            self.processes[worker_id] = p  # Update process list
+            print(f"[Manager] Restarted worker {worker_id}")
+
+    def shutdown(self):
+        """Shutdown all workers gracefully."""
+        # Send poison pills
+        for _ in range(self.num_workers):
+            self.task_queue.put(None)
+
+        # Wait for processes to finish
+        for p in self.processes:
+            p.join(timeout=10)
+            if p.is_alive():
+                p.terminate()
+
+        print("[Manager] All workers shut down.")
+
+
 class DocTool:
     """
-    High-level document processing tool with simplified interface.
+    High-level document processing tool with Multi-GPU/CPU support.
 
-    Wraps DoclingParser to provide easy batch processing of multiple documents.
-    Handles various document formats and converts them to Markdown
-    with automatic image extraction.
+    Wraps DoclingParser to provide easy batch processing with automatic
+    chunking and parallel processing across GPUs or CPUs.
     """
 
     def __init__(
         self,
         do_ocr: bool = False,
         do_table_structure: bool = True,
+        chunk_page_size: int = 10,
+        worker_restart_interval: int = 20,
+        cpu_workers: int = 4,
     ):
         """
         Initialize the document processing tool.
@@ -877,47 +1213,274 @@ class DocTool:
         Args:
             do_ocr: Whether to perform OCR on images within documents
             do_table_structure: Whether to detect and preserve table structures
+            chunk_page_size: Number of pages per PDF chunk
+            worker_restart_interval: Number of chunks before worker restart
+            cpu_workers: Number of CPU worker processes (used if no GPU)
         """
-        config = ParserConfig(
+        self.config = ParserConfig(
             do_ocr=do_ocr,
             do_table_structure=do_table_structure,
+            chunk_page_size=chunk_page_size,
+            worker_restart_interval=worker_restart_interval,
+            cpu_workers=cpu_workers,
         )
-
-        self._parser = DoclingParser(config=config)
 
     def run(self, file_dict: Dict[str, BytesIO]) -> List[Document]:
         """
         Process multiple documents to Markdown format in batch.
 
+        Automatically chunks PDFs and distributes work across available GPUs/CPUs.
+
         Args:
             file_dict: Dictionary mapping filenames (with extensions) to BytesIO file objects
 
         Returns:
-           a list of Document objects.
+            List of Document objects.
         """
-        # Pass all files at once for batch processing
-        return self._parser.parse(file_dict)
+        num_gpus = torch.cuda.device_count()
+
+        print(f"[DocTool] Detected {num_gpus} GPU(s)")
+
+        # Determine worker configuration
+        if num_gpus > 0:
+            num_workers = num_gpus
+            gpu_ids = list(range(num_gpus))
+            cpus_per_worker = None  # GPU mode doesn't use CPU affinity
+            print(f"[DocTool] Using {num_workers} GPU workers")
+        else:
+            num_workers = self.config.cpu_workers
+            gpu_ids = None
+
+            # Calculate CPUs per worker (SLURM/Docker safe)
+            try:
+                allowed_cpus = sorted(os.sched_getaffinity(0))
+                total_cpus = len(allowed_cpus)
+                cpus_per_worker = total_cpus // num_workers
+                print(f"[DocTool] Using {num_workers} CPU workers")
+                print(f"[DocTool] Available CPUs: {total_cpus}, CPUs per worker: {cpus_per_worker}")
+            except Exception as e:
+                print(f"[DocTool] Failed to detect CPU affinity: {e}")
+                cpus_per_worker = None
+
+        # Prepare tasks: chunk PDFs and queue non-PDF files
+        all_chunks = []
+        non_pdf_files = {}
+        
+        for filename, file_stream in file_dict.items():
+            ext = Path(filename).suffix.lower()
+
+            if ext == '.pdf':
+                # Read PDF bytes
+                file_stream.seek(0)
+                pdf_bytes = file_stream.read()
+
+                # Split into chunks
+                chunks = _split_pdf_to_chunks(
+                    file_id=filename,
+                    pdf_bytes=pdf_bytes,
+                    chunk_page_size=self.config.chunk_page_size
+                )
+
+                # Add to task list
+                for chunk_filename, chunk_index, chunk_stream, start_page in chunks:
+                    chunk_stream.seek(0)
+                    chunk_bytes = chunk_stream.read()
+
+                    all_chunks.append((
+                        chunk_filename,
+                        chunk_index,
+                        filename,  # original_file_id
+                        chunk_bytes,
+                        pdf_bytes,  # for chart extraction if needed
+                        start_page  # original page offset
+                    ))
+
+                print(f"[DocTool] Split {filename} into {len(chunks)} chunks")
+
+            else:
+                # Non-PDF files processed directly (no chunking)
+                non_pdf_files[filename] = file_stream
+
+        print(f"[DocTool] Total chunks to process: {len(all_chunks)}")
+        print(f"[DocTool] Non-PDF files: {len(non_pdf_files)}")
+
+        # Convert config to dict
+        config_dict = {
+            "do_ocr": self.config.do_ocr,
+            "do_table_structure": self.config.do_table_structure,
+            "generate_picture_images": self.config.generate_picture_images,
+            "images_scale": self.config.images_scale,
+            "layout_batch_size": self.config.layout_batch_size,
+            "table_batch_size": self.config.table_batch_size,
+            "doc_batch_concurrency": self.config.doc_batch_concurrency,
+            "chunk_page_size": self.config.chunk_page_size,
+            "worker_restart_interval": self.config.worker_restart_interval,
+            "cpu_workers": self.config.cpu_workers,
+        }
+
+        # Initialize worker manager
+        manager = WorkerManager(
+            num_workers=num_workers,
+            gpu_ids=gpu_ids,
+            config_dict=config_dict,
+            worker_restart_interval=self.config.worker_restart_interval,
+            cpus_per_worker=cpus_per_worker
+        )
+
+        manager.start_workers()
+
+        # Distribute tasks to queue
+        for chunk_task in all_chunks:
+            manager.task_queue.put(chunk_task)
+
+        # Collect results
+        chunk_results = []
+        total_tasks = len(all_chunks)
+        received_results = 0
+
+        print(f"[DocTool] Waiting for {total_tasks} chunk results...")
+
+        while received_results < total_tasks:
+            # Check and restart dead workers
+            for i in range(manager.num_workers):
+                if not manager.processes[i].is_alive():
+                    gpu_id = manager.gpu_ids[i] if manager.gpu_ids else None
+                    print(f"[DocTool] Detected dead worker {i}, restarting...")
+                    start_time=time.perf_counter()
+                    manager.restart_worker(i, gpu_id)
+                    total_time = time.perf_counter() - start_time
+                    print(f"time spent restarting: {total_time:.2f} seconds")
+
+            try:
+                result = manager.result_queue.get(timeout=30)  # Shorter timeout for more frequent worker checks
+                chunk_results.append(result)
+                received_results += 1
+
+                if received_results % 10 == 0 or received_results == total_tasks:
+                    print(f"[DocTool] Progress: {received_results}/{total_tasks} chunks completed")
+
+            except Empty:
+                # On timeout, check worker status and continue
+                print(f"[DocTool] Queue timeout, checking workers... ({received_results}/{total_tasks})")
+
+                # Check if any workers are still alive
+                alive_workers = sum(1 for p in manager.processes if p.is_alive())
+                if alive_workers == 0 and received_results < total_tasks:
+                    print(f"[DocTool] ERROR: All workers died with {total_tasks - received_results} tasks remaining!")
+                    break
+
+                continue  # Continue waiting for results
+
+        # Shutdown workers
+        manager.shutdown()
+
+        print(f"[DocTool] All chunks processed. Merging results...")
+
+        # Merge chunk results into final documents
+        final_documents = self._merge_chunk_results(chunk_results)
+
+        # Process non-PDF files (if any)
+        if non_pdf_files:
+            print(f"[DocTool] Processing {len(non_pdf_files)} non-PDF files...")
+            parser = DoclingParser(config=self.config, gpu_id=None)
+            non_pdf_docs = parser.parse(non_pdf_files)
+            final_documents.extend(non_pdf_docs)
+
+        print(f"[DocTool] Processing complete. Total documents: {len(final_documents)}")
+
+        return final_documents
+
+    def _merge_chunk_results(self, chunk_results: List[ChunkResult]) -> List[Document]:
+        """
+        Merge chunk results back into complete documents.
+
+        Args:
+            chunk_results: List of ChunkResult objects
+
+        Returns:
+            List of complete Document objects
+        """
+        # Group by original file ID
+        file_chunks: Dict[str, List[ChunkResult]] = {}
+
+        for chunk in chunk_results:
+            if chunk.original_file_id not in file_chunks:
+                file_chunks[chunk.original_file_id] = []
+            file_chunks[chunk.original_file_id].append(chunk)
+
+        # Merge each file's chunks
+        documents = []
+
+        for file_id, chunks in file_chunks.items():
+            # Sort by chunk index
+            chunks.sort(key=lambda x: x.chunk_index)
+
+            # Check for errors
+            failed_chunks = [c for c in chunks if not c.success]
+            if failed_chunks:
+                print(f"[Warning] {file_id} has {len(failed_chunks)} failed chunks:")
+                for fc in failed_chunks:
+                    print(f"  - Chunk {fc.chunk_index}: {fc.error_msg}")
+
+            # Merge text
+            merged_text = "\n\n".join([c.text for c in chunks if c.success])
+
+            # Merge images
+            all_images = []
+            for chunk in chunks:
+                if chunk.success and chunk.images:
+                    all_images.extend(chunk.images)
+
+            # Create final document
+            doc = Document(
+                id=file_id,
+                text=merged_text,
+                images=all_images if all_images else None
+            )
+
+            documents.append(doc)
+
+        return documents
 
 
 # ex
 if __name__ == "__main__":
+    # Set multiprocessing start method (required for CUDA)
+    try:
+        multiprocessing.set_start_method('spawn', force=True)
+    except RuntimeError:
+        pass
+
     input_folder = Path("/home/shaush/pdfs")
     output_root = Path("/home/shaush/work/parsed-outputs")
     log_file_path = output_root / "parsing_log.txt"
-    
+
     output_root.mkdir(parents=True, exist_ok=True)
-    
+
     file_list = [p.resolve() for p in input_folder.iterdir() if p.is_file()]
     print(f"Found {len(file_list)} files.")
 
-    processor = DocTool()
+    # Check available GPUs
+    num_gpus = torch.cuda.device_count()
+    if num_gpus > 0:
+        print(f"Detected {num_gpus} GPU(s). Multi-GPU processing will be used.")
+        for i in range(num_gpus):
+            gpu_name = torch.cuda.get_device_name(i)
+            print(f"  GPU {i}: {gpu_name}")
+    else:
+        print("No GPU detected. Using CPU mode.")
+
+    processor = DocTool(
+        chunk_page_size=10,
+        worker_restart_interval=20,
+        cpu_workers=1
+    )
 
     file_dict = {}
     for file_path in file_list:
         with open(file_path, "rb") as f:
             file_dict[file_path.name] = BytesIO(f.read())
             
-    print("Processing started... (Logs will be saved to parsing_log.txt)")
     start_time = time.perf_counter()
     
     results = processor.run(file_dict)
@@ -926,34 +1489,40 @@ if __name__ == "__main__":
     print(f"Total parsing time: {total_time:.2f} seconds")
 
     with open(log_file_path, "w", encoding="utf-8") as log_file:
-        log_file.write(f"Batch Processing Report\n")
+        log_file.write(f"Batch Processing Report (Multi-GPU/CPU)\n")
         log_file.write(f"Total Files: {len(results)}\n")
         log_file.write(f"Total Time: {total_time:.2f}s\n")
+        log_file.write(f"Average Time per File: {total_time/len(results):.2f}s\n")
+        log_file.write(f"GPUs Used: {num_gpus if num_gpus > 0 else 'CPU only'}\n")
         log_file.write("="*50 + "\n")
 
         for doc in results:
             filename = doc.id
-            
-            md_content = doc.text 
-            
+
+            md_content = doc.text
+
             save_name = Path(filename).stem + ".md"
             save_path = output_root / save_name
-            
+
             # Markdown 파일 저장
             try:
                 with open(save_path, "w", encoding="utf-8") as f:
                     f.write(md_content)
-                
-                log_msg = f"[Success] {filename} | Images extracted: {len(doc.images)}"
-                log_file.write(log_msg + "\n"+ "doc.id: "+ doc.id+ "doc.text"+ doc.text[:30])
-                doc.id
+
+                num_images = len(doc.images) if doc.images else 0
+                log_msg = f"[Success] {filename} | Images extracted: {num_images}"
+                log_file.write(log_msg + "\n")
+                log_file.write(f"   - doc.id: {doc.id}\n")
+                log_file.write(f"   - doc.text preview: {doc.text[:100]}...\n")
+
                 if doc.images:
                     first_img = doc.images[0]
-                    log_file.write(f"   - Sample Image ID: {first_img.id} ({first_img.mime_type}) ({first_img.data[:30]})\n")
+                    log_file.write(f"   - Sample Image ID: {first_img.id} ({first_img.mime_type})\n")
+                    log_file.write(f"   - Image data length: {len(first_img.data)} bytes\n")
 
             except Exception as e:
                 err_msg = f"[Failed] {filename}: {e}"
-                print(err_msg) 
+                print(err_msg)
                 log_file.write(err_msg + "\n")
 
     print(f"Done! Results saved in '{output_root}'")
