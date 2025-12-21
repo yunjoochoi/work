@@ -1266,6 +1266,7 @@ class DocTool:
         all_chunks = []
         non_pdf_files = {}
         
+        doc_tracker = {}
         for filename, file_stream in file_dict.items():
             ext = Path(filename).suffix.lower()
 
@@ -1280,6 +1281,12 @@ class DocTool:
                     pdf_bytes=pdf_bytes,
                     chunk_page_size=self.config.chunk_page_size
                 )
+
+                doc_tracker[filename] = {
+                    "total": len(chunks),
+                    "received": 0,
+                    "start_time": time.perf_counter()  # time tracker
+                }
 
                 # Add to task list
                 for chunk_filename, chunk_index, chunk_stream, start_page in chunks:
@@ -1353,6 +1360,17 @@ class DocTool:
 
             try:
                 result = manager.result_queue.get(timeout=30)  # Shorter timeout for more frequent worker checks
+                
+                fid = result.original_file_id
+                if fid in doc_tracker:
+                    tracker = doc_tracker[fid]
+                    tracker["received"] += 1
+                    
+                    # Calculate and print the time when all chunks have arrived
+                    if tracker["received"] == tracker["total"]:
+                        total_time = time.perf_counter() - tracker["start_time"]
+                        print(f"{fid} processed: {total_time:.2f} seconds")
+                
                 chunk_results.append(result)
                 received_results += 1
 
