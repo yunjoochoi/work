@@ -10,9 +10,8 @@
 
 echo "Job ID: $SLURM_JOB_ID"
 echo "Allocated GPUs: $CUDA_VISIBLE_DEVICES"
-echo "64"
 
-
+echo "newfastfail_mm_doc_tool_docbatch_fallback_figureclass_basemodel_quantization.py"
 # # thread threshold (CPU)
 # export OMP_NUM_THREADS=4
 # export MKL_NUM_THREADS=4
@@ -20,7 +19,7 @@ echo "64"
 
 cd /home/shaush/work
 source .venv/bin/activate
-python mm_doc_tool_docbatch_fallback_figureclass_basemodel_quantization.py
+python newfastfail_mm_doc_tool_docbatch_fallback_figureclass_basemodel_quantization.py
 
 # SBATCH -p dell_cpu
 # SBATCH --qos=cpu_qos 

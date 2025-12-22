@@ -9,10 +9,7 @@
 
 echo "Job ID: $SLURM_JOB_ID"
 echo "Allocated GPUs: $CUDA_VISIBLE_DEVICES"
-echo "64"
 
-
-OMP_NUM_THREADS=2
 # # thread threshold (CPU) 너무올리면 속도 느려짐
 # export OMP_NUM_THREADS=1
 # export MKL_NUM_THREADS=1

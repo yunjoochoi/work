@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from queue import Empty
 
 # PDF Chunking
-from pypdf import PdfReader, PdfWriter
+import pikepdf
 
 # Docling & Models
 from pydantic import BaseModel, Field
@@ -27,8 +27,6 @@ from docling_core.types.doc.base import ImageRefMode
 from docling_core.types.io import DocumentStream
 from docling_core.types.doc import PictureItem
 from docling.backend.pypdfium2_backend import PyPdfiumDocumentBackend
-
-from pydantic import BaseModel, Field
 
 from openpyxl import load_workbook
 from openpyxl.utils import range_boundaries
@@ -50,7 +48,7 @@ class Document(BaseModel):
 
 @dataclass
 class ChunkResult:
-    """내부 처리용: 청크 단위 결과"""
+    """For internal processing - Chunked results"""
     original_file_id: str
     chunk_index: int
     text: str
@@ -81,12 +79,12 @@ class ParserConfig:
     images_scale: float = 2.0  # Scale factor for generated images
 
     # Model Batch Sizes (GPU Inference Batch)
-    layout_batch_size: int = 16 # layout heroin
-    table_batch_size: int = 16  # TableFormer
+    layout_batch_size: int = 16  # Layout detection model batch size
+    table_batch_size: int = 16   # Table structure recognition model batch size
 
-    # Batch processing settings 
-    doc_batch_size: int = 8           # (now it refers to number of chunks when it comes to pdfs) Number of documents processed at once -> 문서 처리가 청크 단위로 바뀌어서 제거
-    doc_batch_concurrency: int = 1    # setting this to 1. Number of concurrent workers in a process 문서(청크) 하나 처리에 달라붙는 워커 수
+    # Document processing settings
+    doc_batch_size: int = 8           # Number of documents/chunks processed in batch
+    doc_batch_concurrency: int = 1    # Number of concurrent workers in a process (set to 1 for stability)
 
     # Batch & Resource Settings
     chunk_page_size: int = 10          # Number of pages per chunk
@@ -100,9 +98,9 @@ def _split_pdf_to_chunks(
     file_id: str,
     pdf_bytes: bytes,
     chunk_page_size: int
-) -> List[Tuple[str, int, BytesIO]]:
+) -> List[Tuple[str, int, BytesIO, int]]:
     """
-    Split a PDF file into page chunks.
+    Split a PDF file into page chunks using pikepdf (preserves ToUnicode maps and image resources).
 
     Args:
         file_id: Original filename
@@ -110,37 +108,42 @@ def _split_pdf_to_chunks(
         chunk_page_size: Number of pages per chunk
 
     Returns:
-        List of tuples (chunk_filename, chunk_index, chunk_bytesio)
+        List of tuples (chunk_filename, chunk_index, chunk_bytesio, start_page_offset)
     """
     chunks = []
 
     try:
-        reader = PdfReader(BytesIO(pdf_bytes))
-        total_pages = len(reader.pages)
+        # pikepdf can directly open BytesIO
+        with pikepdf.open(BytesIO(pdf_bytes)) as pdf:
+            total_pages = len(pdf.pages)
+            num_chunks = (total_pages + chunk_page_size - 1) // chunk_page_size
 
-        num_chunks = (total_pages + chunk_page_size - 1) // chunk_page_size
+            for chunk_idx in range(num_chunks):
+                start_page = chunk_idx * chunk_page_size
+                end_page = min(start_page + chunk_page_size, total_pages)
 
-        for chunk_idx in range(num_chunks):
-            start_page = chunk_idx * chunk_page_size
-            end_page = min(start_page + chunk_page_size, total_pages)
+                # Create new PDF container
+                dst = pikepdf.new()
 
-            # Create chunk PDF
-            writer = PdfWriter()
-            for page_num in range(start_page, end_page):
-                writer.add_page(reader.pages[page_num])
+                # Copy pages (pikepdf preserves resource links during this process)
+                for i in range(start_page, end_page):
+                    dst.pages.append(pdf.pages[i])
 
-            # Write to BytesIO
-            chunk_stream = BytesIO()
-            writer.write(chunk_stream)
-            chunk_stream.seek(0)
+                # Save to memory stream
+                chunk_stream = BytesIO()
+                dst.save(chunk_stream)
+                chunk_stream.seek(0)
 
-            # Generate chunk filename
-            chunk_filename = f"{file_id}__chunk_{chunk_idx:04d}.pdf"
+                # Generate chunk filename
+                chunk_filename = f"{file_id}__chunk_{chunk_idx:04d}.pdf"
 
-            chunks.append((chunk_filename, chunk_idx, chunk_stream))
+                # Include start_page offset for original page numbering
+                chunks.append((chunk_filename, chunk_idx, chunk_stream, start_page))
+
+                print(f"[Info] Chunk created: {chunk_filename} (Pages {start_page}-{end_page}, offset: {start_page})")
 
     except Exception as e:
-        print(f"[Error] Failed to split PDF {file_id}: {e}")
+        print(f"[Error] Failed to split PDF {file_id} with pikepdf: {e}")
         traceback.print_exc()
 
     return chunks
@@ -276,8 +279,6 @@ class DoclingParser:
         doc_streams, raw_bytes_map = self._input_streams(file_dict)
         results_map = {}
 
-        print("[Info] Starting Batch Conversion...")
-
         # Execute primary batch conversion
         # raises_on_error = False : the iterator yields failure results instead of crashing.
         primary_iter = self.converter.convert_all(doc_streams, raises_on_error=False)
@@ -291,18 +292,15 @@ class DoclingParser:
                 continue
 
             # Primary failed -> Analyze errors
-            print(f"[Warning] Primary conversion failed for {filename}.")
-            
             # Check for "Invalid code point" error.
             is_target_error = False
             for err in result.errors:
                 if "Invalid code point" in str(err.error_message):
                     is_target_error = True
                     break
-            
+
             # Trigger immediate fallback if critical error detected
             if is_target_error:
-                print(f"[Fallback] triggering PyPdfiumBackend for {filename}...")
                 
                 try:
                     file_bytes = raw_bytes_map.get(filename)
@@ -320,18 +318,20 @@ class DoclingParser:
                         print(f"[Fallback Success] Recovered {filename}")
                         self._finalize_result(retry_result, filename, raw_bytes_map, results_map, page_offset)
                     else:
-                        print(f"[Fallback Failed] {filename} failed again.")
+                        print(f"  [Fallback Failed] {filename} failed again.")
                         for e in retry_result.errors:
                             print(f"   - Error: {e.error_message}")
 
                 except Exception as e:
-                    print(f"[Fallback Critical] Error during PyPdfiumBackend: {e}")
+                    print(f"  [Fallback Critical] Error during PyPdfiumBackend: {e}")
                     import traceback
                     traceback.print_exc()
             
             # Non-recoverable error
             else:
-                print(f"[Failure] {filename} failed with non-recoverable error.")
+                print(f"  [Failure] {filename} failed with error:")
+                for err in result.errors:
+                    print(f"   - {err.error_message}")
 
         return list(results_map.values())
 
@@ -989,7 +989,7 @@ def _chunk_worker_process(
         cpus_per_worker: Number of CPUs to assign to this worker (CPU mode only)
     """
     device_str = f"GPU-{gpu_id}" if gpu_id is not None else f"CPU-{worker_id}"
-    print(f"[Worker-{device_str}] Starting worker process...")
+    print(f"⬆️  [Worker-{device_str}] Worker process started")
 
     # Set CPU affinity for CPU-only workers (SLURM/Docker safe)
     if gpu_id is None and cpus_per_worker is not None and cpus_per_worker > 0:
@@ -1027,17 +1027,21 @@ def _chunk_worker_process(
                 task = task_queue.get(timeout=5)
 
                 if task is None:  # Poison pill to terminate worker
-                    print(f"[Worker-{device_str}] Received termination signal.")
+                    print(f"⬇️  [Worker-{device_str}] Received shutdown signal")
                     break
 
                 chunk_filename, chunk_index, original_file_id, chunk_bytes, _file_bytes_for_chart, page_offset = task
 
-                print(f"[Worker-{device_str}] Processing chunk {chunk_index} from {original_file_id} (page offset: {page_offset})")
+                # Start timing
+                start_time = time.perf_counter()
 
                 # Process chunk with page offset for correct page numbering
                 file_dict = {chunk_filename: BytesIO(chunk_bytes)}
                 doc_list = parser.parse(file_dict, page_offset=page_offset)
-                
+
+                # Calculate processing time
+                total_time = time.perf_counter() - start_time
+
                 if doc_list and len(doc_list) > 0:
                     doc = doc_list[0]
 
@@ -1050,7 +1054,6 @@ def _chunk_worker_process(
                         success=True,
                         error_msg=None
                     )
-                    print(f"[Worker-{device_str}] {chunk_filename} processed: {total_time:.2f} seconds")
                 else:
                     chunk_result = ChunkResult(
                         original_file_id=original_file_id,
@@ -1060,14 +1063,14 @@ def _chunk_worker_process(
                         success=False,
                         error_msg="No document returned from parser"
                     )
-                    print(f"[Worker-{device_str}] {chunk_filename} failed: {total_time:.2f} seconds")
+                    print(f"  [Worker-{device_str}] Chunk {chunk_index} of {original_file_id} failed ({total_time:.2f}s)")
 
                 result_queue.put(chunk_result)
                 chunks_processed += 1
 
                 # Self-restart mechanism
                 if chunks_processed >= worker_restart_interval:
-                    print(f"[Worker-{device_str}] Reached restart interval ({chunks_processed} chunks). Terminating...")
+                    print(f"  [Worker-{device_str}] Shutting down after {chunks_processed} chunks (restart interval reached)")
                     break
 
             except Empty:
@@ -1093,7 +1096,7 @@ def _chunk_worker_process(
         traceback.print_exc()
 
     finally:
-        print(f"[Worker-{device_str}] Worker process terminating (processed {chunks_processed} chunks)")
+        print(f"  [Worker-{device_str}] Worker process terminated (total processed: {chunks_processed} chunks)")
 
 
 class WorkerManager:
@@ -1174,10 +1177,13 @@ class WorkerManager:
             )
             p.start()
             self.processes[worker_id] = p  # Update process list
-            print(f"[Manager] Restarted worker {worker_id}")
+            device_name = f"GPU-{gpu_id}" if gpu_id is not None else f"CPU-{worker_id}"
+            print(f" [Manager] Worker {device_name} restarted successfully")
 
     def shutdown(self):
         """Shutdown all workers gracefully."""
+        print(f"[Manager] Sending shutdown signal to {self.num_workers} workers...")
+
         # Send poison pills
         for _ in range(self.num_workers):
             self.task_queue.put(None)
@@ -1188,7 +1194,7 @@ class WorkerManager:
             if p.is_alive():
                 p.terminate()
 
-        print("[Manager] All workers shut down.")
+        print("[Manager] All workers shut down successfully")
 
 
 class DocTool:
@@ -1315,6 +1321,7 @@ class DocTool:
         config_dict = {
             "do_ocr": self.config.do_ocr,
             "do_table_structure": self.config.do_table_structure,
+            "do_formula_enrichment": self.config.do_formula_enrichment,
             "generate_picture_images": self.config.generate_picture_images,
             "images_scale": self.config.images_scale,
             "layout_batch_size": self.config.layout_batch_size,
@@ -1352,11 +1359,9 @@ class DocTool:
             for i in range(manager.num_workers):
                 if not manager.processes[i].is_alive():
                     gpu_id = manager.gpu_ids[i] if manager.gpu_ids else None
-                    print(f"[DocTool] Detected dead worker {i}, restarting...")
-                    start_time=time.perf_counter()
+                    device_name = f"GPU-{gpu_id}" if gpu_id is not None else f"CPU-{i}"
+                    print(f"🔄 [Manager] Detected stopped worker {device_name}, restarting...")
                     manager.restart_worker(i, gpu_id)
-                    total_time = time.perf_counter() - start_time
-                    print(f"time spent restarting: {total_time:.2f} seconds")
 
             try:
                 result = manager.result_queue.get(timeout=30)  # Shorter timeout for more frequent worker checks
@@ -1368,18 +1373,17 @@ class DocTool:
                     
                     # Calculate and print the time when all chunks have arrived
                     if tracker["received"] == tracker["total"]:
-                        total_time = time.perf_counter() - tracker["start_time"]
-                        print(f"{fid} processed: {total_time:.2f} seconds")
+                        end_time = time.perf_counter()
+                        elapsed_time = end_time - tracker["start_time"]
+                        
+                        # 여기서 바로 출력 (저장 안 함)
+                        print(f"✅ [Processed] {fid} completed in {elapsed_time:.2f} seconds")
                 
                 chunk_results.append(result)
                 received_results += 1
 
-                if received_results % 10 == 0 or received_results == total_tasks:
-                    print(f"[DocTool] Progress: {received_results}/{total_tasks} chunks completed")
-
             except Empty:
-                # On timeout, check worker status and continue
-                print(f"[DocTool] Queue timeout, checking workers... ({received_results}/{total_tasks})")
+                # On timeout, check worker status and continue (silent check)
 
                 # Check if any workers are still alive
                 alive_workers = sum(1 for p in manager.processes if p.is_alive())
