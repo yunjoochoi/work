@@ -11,7 +11,7 @@ import torch
 from pathlib import Path
 from io import BytesIO
 from typing import List, Dict, Any, Tuple, Optional
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from queue import Empty
 
 # PDF Chunking
@@ -982,14 +982,14 @@ def _chunk_worker_process(
     Args:
         worker_id: Unique worker identifier
         gpu_id: GPU device ID (None for CPU)
-        task_queue: Queue containing (chunk_filename, chunk_index, original_file_id, chunk_bytes, file_bytes_for_chart)
+        task_queue: Queue containing (chunk_filename, chunk_index, original_file_id, chunk_bytes, page_offset)
         result_queue: Queue for returning ChunkResult objects
         config_dict: Configuration dictionary
         worker_restart_interval: Number of chunks to process before self-termination
         cpus_per_worker: Number of CPUs to assign to this worker (CPU mode only)
     """
     device_str = f"GPU-{gpu_id}" if gpu_id is not None else f"CPU-{worker_id}"
-    print(f"⬆️  [Worker-{device_str}] Worker process started")
+    print(f"  [Worker-{device_str}] Worker process started")
 
     # Set CPU affinity for CPU-only workers (SLURM/Docker safe)
     if gpu_id is None and cpus_per_worker is not None and cpus_per_worker > 0:
@@ -1027,10 +1027,10 @@ def _chunk_worker_process(
                 task = task_queue.get(timeout=5)
 
                 if task is None:  # Poison pill to terminate worker
-                    print(f"⬇️  [Worker-{device_str}] Received shutdown signal")
+                    print(f"  [Worker-{device_str}] Received shutdown signal")
                     break
 
-                chunk_filename, chunk_index, original_file_id, chunk_bytes, _file_bytes_for_chart, page_offset = task
+                chunk_filename, chunk_index, original_file_id, chunk_bytes, page_offset = task
 
                 # Start timing
                 start_time = time.perf_counter()
@@ -1304,7 +1304,6 @@ class DocTool:
                         chunk_index,
                         filename,  # original_file_id
                         chunk_bytes,
-                        pdf_bytes,  # for chart extraction if needed
                         start_page  # original page offset
                     ))
 
@@ -1360,7 +1359,7 @@ class DocTool:
                 if not manager.processes[i].is_alive():
                     gpu_id = manager.gpu_ids[i] if manager.gpu_ids else None
                     device_name = f"GPU-{gpu_id}" if gpu_id is not None else f"CPU-{i}"
-                    print(f"🔄 [Manager] Detected stopped worker {device_name}, restarting...")
+                    print(f"[Manager] Detected stopped worker {device_name}, restarting...")
                     manager.restart_worker(i, gpu_id)
 
             try:
@@ -1377,7 +1376,7 @@ class DocTool:
                         elapsed_time = end_time - tracker["start_time"]
                         
                         # 여기서 바로 출력 (저장 안 함)
-                        print(f"✅ [Processed] {fid} completed in {elapsed_time:.2f} seconds")
+                        print(f"[Processed] {fid} completed in {elapsed_time:.2f} seconds")
                 
                 chunk_results.append(result)
                 received_results += 1
@@ -1474,7 +1473,7 @@ if __name__ == "__main__":
         pass
 
     input_folder = Path("/home/shaush/pdfs")
-    output_root = Path("/home/shaush/work/parsed-outputs")
+    output_root = Path("/home/shaush/work/parsed-outputs-cpu")
     log_file_path = output_root / "parsing_log.txt"
 
     output_root.mkdir(parents=True, exist_ok=True)
@@ -1495,7 +1494,7 @@ if __name__ == "__main__":
     processor = DocTool(
         chunk_page_size=10,
         worker_restart_interval=20,
-        cpu_workers=1
+        cpu_workers=4
     )
 
     file_dict = {}

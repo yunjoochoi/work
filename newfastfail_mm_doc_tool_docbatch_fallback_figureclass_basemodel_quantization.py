@@ -938,133 +938,7 @@ class DoclingParser:
             return []
 
 
-def _chunk_worker_process(
-    worker_id: int,
-    gpu_id: Optional[int],
-    task_queue: multiprocessing.Queue,
-    result_queue: multiprocessing.Queue,
-    config_dict: Dict[str, Any],
-    worker_restart_interval: int,
-    cpus_per_worker: Optional[int] = None
-):
-    """
-    Worker process that processes document chunks from a queue.
 
-    Args:
-        worker_id: Unique worker identifier
-        gpu_id: GPU device ID (None for CPU)
-        task_queue: Queue containing (chunk_filename, chunk_index, original_file_id, chunk_bytes, file_bytes_for_chart)
-        result_queue: Queue for returning ChunkResult objects
-        config_dict: Configuration dictionary
-        worker_restart_interval: Number of chunks to process before self-termination
-        cpus_per_worker: Number of CPUs to assign to this worker (CPU mode only)
-    """
-    device_str = f"GPU-{gpu_id}" if gpu_id is not None else f"CPU-{worker_id}"
-    print(f"⬆️  [Worker-{device_str}] Worker process started")
-
-    # Set CPU affinity (Same as before)
-    if gpu_id is None and cpus_per_worker is not None and cpus_per_worker > 0:
-        try:
-            allowed_cpus = sorted(os.sched_getaffinity(0))
-            total_allowed = len(allowed_cpus)
-            if total_allowed >= cpus_per_worker:
-                start_idx = worker_id * cpus_per_worker
-                end_idx = min(start_idx + cpus_per_worker, total_allowed)
-                cpu_set = set(allowed_cpus[start_idx:end_idx])
-                os.sched_setaffinity(0, cpu_set)
-                print(f"[Worker-{device_str}] Set CPU affinity to: {sorted(cpu_set)}")
-        except Exception: pass
-
-    try:
-        config = ParserConfig(**config_dict)
-        parser = DoclingParser(config=config, gpu_id=gpu_id)
-        chunks_processed = 0
-
-        while True:
-            try:
-                task = task_queue.get(timeout=5)
-                if task is None:
-                    print(f"⬇️  [Worker-{device_str}] Received shutdown signal")
-                    break
-
-                # [수정] Task 구조 변경 (use_fallback 추가)
-                chunk_filename, chunk_index, original_file_id, chunk_bytes, page_offset, use_fallback = task
-
-                start_time = time.perf_counter()
-                file_dict = {chunk_filename: BytesIO(chunk_bytes)}
-
-                try:
-                    # [수정] use_fallback 플래그 전달
-                    doc_list = parser.parse(file_dict, page_offset=page_offset, use_fallback=use_fallback)
-                    total_time = time.perf_counter() - start_time
-
-                    if doc_list and len(doc_list) > 0:
-                        doc = doc_list[0]
-                        chunk_result = ChunkResult(
-                            original_file_id=original_file_id,
-                            chunk_index=chunk_index,
-                            text=doc.text,
-                            images=doc.images if doc.images else [],
-                            success=True,
-                            error_msg=None,
-                            needs_full_fallback=False
-                        )
-                    else:
-                        chunk_result = ChunkResult(
-                            original_file_id=original_file_id,
-                            chunk_index=chunk_index,
-                            text="",
-                            images=[],
-                            success=False,
-                            error_msg="No document returned from parser",
-                            needs_full_fallback=False
-                        )
-                        print(f"⚠️  [Worker-{device_str}] Task {chunk_index} of {original_file_id} failed ({total_time:.2f}s)")
-
-                except RuntimeError as e:
-                    # [수정] Critical Error 감지 시
-                    total_time = time.perf_counter() - start_time
-                    err_msg = str(e)
-                    needs_fallback = "Invalid code point" in err_msg and not use_fallback
-
-                    if needs_fallback:
-                        print(f"🚨 [Worker-{device_str}] Critical Error (Invalid code point) in {original_file_id}. Requesting global fallback.")
-                    else:
-                        print(f"❌ [Worker-{device_str}] Error in {original_file_id}: {err_msg}")
-
-                    chunk_result = ChunkResult(
-                        original_file_id=original_file_id,
-                        chunk_index=chunk_index,
-                        text="",
-                        images=[],
-                        success=False,
-                        error_msg=err_msg,
-                        needs_full_fallback=needs_fallback
-                    )
-
-                result_queue.put(chunk_result)
-                chunks_processed += 1
-
-                if chunks_processed >= worker_restart_interval:
-                    print(f"⬇️  [Worker-{device_str}] Shutting down after {chunks_processed} tasks (restart interval)")
-                    break
-
-            except Empty:
-                continue
-            except Exception as e:
-                print(f"[Worker-{device_str}] Unexpected error: {e}")
-                traceback.print_exc()
-                if 'original_file_id' in locals():
-                    result_queue.put(ChunkResult(
-                        original_file_id=original_file_id,
-                        chunk_index=chunk_index, text="", images=[], success=False, error_msg=str(e)
-                    ))
-
-    except Exception as e:
-        print(f"[Worker-{device_str}] Fatal error: {e}")
-        traceback.print_exc()
-    finally:
-        print(f"⬇️  [Worker-{device_str}] Terminated.")
 
 
 class WorkerManager:
@@ -1098,6 +972,135 @@ class WorkerManager:
         self.result_queue = multiprocessing.Queue()
 
         self.processes: List[multiprocessing.Process] = []
+
+    @staticmethod
+    def _chunk_worker_process(
+        worker_id: int,
+        gpu_id: Optional[int],
+        task_queue: multiprocessing.Queue,
+        result_queue: multiprocessing.Queue,
+        config_dict: Dict[str, Any],
+        worker_restart_interval: int,
+        cpus_per_worker: Optional[int] = None
+    ):
+        """
+        Worker process that processes document chunks from a queue.
+
+        Args:
+            worker_id: Unique worker identifier
+            gpu_id: GPU device ID (None for CPU)
+            task_queue: Queue containing (chunk_filename, chunk_index, original_file_id, chunk_bytes, file_bytes_for_chart)
+            result_queue: Queue for returning ChunkResult objects
+            config_dict: Configuration dictionary
+            worker_restart_interval: Number of chunks to process before self-termination
+            cpus_per_worker: Number of CPUs to assign to this worker (CPU mode only)
+        """
+        device_str = f"GPU-{gpu_id}" if gpu_id is not None else f"CPU-{worker_id}"
+        print(f"⬆️  [Worker-{device_str}] Worker process started")
+
+        # Set CPU affinity (Same as before)
+        if gpu_id is None and cpus_per_worker is not None and cpus_per_worker > 0:
+            try:
+                allowed_cpus = sorted(os.sched_getaffinity(0))
+                total_allowed = len(allowed_cpus)
+                if total_allowed >= cpus_per_worker:
+                    start_idx = worker_id * cpus_per_worker
+                    end_idx = min(start_idx + cpus_per_worker, total_allowed)
+                    cpu_set = set(allowed_cpus[start_idx:end_idx])
+                    os.sched_setaffinity(0, cpu_set)
+                    print(f"[Worker-{device_str}] Set CPU affinity to: {sorted(cpu_set)}")
+            except Exception: pass
+
+        try:
+            config = ParserConfig(**config_dict)
+            parser = DoclingParser(config=config, gpu_id=gpu_id)
+            chunks_processed = 0
+
+            while True:
+                try:
+                    task = task_queue.get(timeout=5)
+                    if task is None:
+                        print(f"⬇️  [Worker-{device_str}] Received shutdown signal")
+                        break
+
+                    # [수정] Task 구조 변경 (use_fallback 추가)
+                    chunk_filename, chunk_index, original_file_id, chunk_bytes, page_offset, use_fallback = task
+
+                    start_time = time.perf_counter()
+                    file_dict = {chunk_filename: BytesIO(chunk_bytes)}
+
+                    try:
+                        # [수정] use_fallback 플래그 전달
+                        doc_list = parser.parse(file_dict, page_offset=page_offset, use_fallback=use_fallback)
+                        total_time = time.perf_counter() - start_time
+
+                        if doc_list and len(doc_list) > 0:
+                            doc = doc_list[0]
+                            chunk_result = ChunkResult(
+                                original_file_id=original_file_id,
+                                chunk_index=chunk_index,
+                                text=doc.text,
+                                images=doc.images if doc.images else [],
+                                success=True,
+                                error_msg=None,
+                                needs_full_fallback=False
+                            )
+                        else:
+                            chunk_result = ChunkResult(
+                                original_file_id=original_file_id,
+                                chunk_index=chunk_index,
+                                text="",
+                                images=[],
+                                success=False,
+                                error_msg="No document returned from parser",
+                                needs_full_fallback=False
+                            )
+                            print(f"⚠️  [Worker-{device_str}] Task {chunk_index} of {original_file_id} failed ({total_time:.2f}s)")
+
+                    except RuntimeError as e:
+                        # [수정] Critical Error 감지 시
+                        total_time = time.perf_counter() - start_time
+                        err_msg = str(e)
+                        needs_fallback = "Invalid code point" in err_msg and not use_fallback
+
+                        if needs_fallback:
+                            print(f"🚨 [Worker-{device_str}] Critical Error (Invalid code point) in {original_file_id}. Requesting global fallback.")
+                        else:
+                            print(f"❌ [Worker-{device_str}] Error in {original_file_id}: {err_msg}")
+
+                        chunk_result = ChunkResult(
+                            original_file_id=original_file_id,
+                            chunk_index=chunk_index,
+                            text="",
+                            images=[],
+                            success=False,
+                            error_msg=err_msg,
+                            needs_full_fallback=needs_fallback
+                        )
+
+                    result_queue.put(chunk_result)
+                    chunks_processed += 1
+
+                    if chunks_processed >= worker_restart_interval:
+                        print(f"⬇️  [Worker-{device_str}] Shutting down after {chunks_processed} tasks (restart interval)")
+                        break
+
+                except Empty:
+                    continue
+                except Exception as e:
+                    print(f"[Worker-{device_str}] Unexpected error: {e}")
+                    traceback.print_exc()
+                    if 'original_file_id' in locals():
+                        result_queue.put(ChunkResult(
+                            original_file_id=original_file_id,
+                            chunk_index=chunk_index, text="", images=[], success=False, error_msg=str(e)
+                        ))
+
+        except Exception as e:
+            print(f"[Worker-{device_str}] Fatal error: {e}")
+            traceback.print_exc()
+        finally:
+            print(f"⬇️  [Worker-{device_str}] Terminated.")
 
     def start_workers(self):
         """Start all worker processes."""

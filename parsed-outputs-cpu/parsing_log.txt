@@ -1,0 +1,183 @@
+Batch Processing Report (Multi-GPU/CPU)
+Total Files: 17
+Total Time: 1142.99s
+Average Time per File: 67.23s
+GPUs Used: 4
+==================================================
+[Success] 연세대_재학증명서.pdf | Images extracted: 3
+   - doc.id: 연세대_재학증명서.pdf
+   - doc.text preview: - Page 1 -
+
+![Image](연세대_재학증명서.pdf__chunk_0000/page_0001/pictures_0.png)
+
+![Image](연세대_재학증명서.pdf__ch...
+   - Sample Image ID: 연세대_재학증명서.pdf__chunk_0000/page_0001/pictures_0.png (image/png)
+   - Image data length: 43568 bytes
+[Success] 2025년+8월+산업활동동향+보도자료.pdf | Images extracted: 71
+   - doc.id: 2025년+8월+산업활동동향+보도자료.pdf
+   - doc.text preview: - Page 1 -
+
+![Image](2025년+8월+산업활동동향+보도자료.pdf__chunk_0000/page_0001/pictures_0.png)
+
+부
+
+광업제조업동향조사, 서...
+   - Sample Image ID: 2025년+8월+산업활동동향+보도자료.pdf__chunk_0000/page_0001/pictures_0.png (image/png)
+   - Image data length: 10680 bytes
+[Success] pranger-3.pdf | Images extracted: 8
+   - doc.id: pranger-3.pdf
+   - doc.text preview: - Page 1 -
+
+- nach allen Seiten ausstellen zu können. Wohl der einzige erhaltene Pilori in Säulenfor...
+   - Sample Image ID: pranger-3.pdf__chunk_0000/page_0001/pictures_0.png (image/png)
+   - Image data length: 46260 bytes
+[Success] Claude Sonnet 4.5 System Card.pdf | Images extracted: 65
+   - doc.id: Claude Sonnet 4.5 System Card.pdf
+   - doc.text preview: - Page 1 -
+
+## System Card: Claude Sonnet 4.5
+
+September 2025
+
+anthropic.com
+
+- Page 2 -
+
+## Changel...
+   - Sample Image ID: Claude Sonnet 4.5 System Card.pdf__chunk_0002/page_0021/pictures_0.png (image/png)
+   - Image data length: 67392 bytes
+[Success] 20251128_company_828658000.pdf | Images extracted: 7
+   - doc.id: 20251128_company_828658000.pdf
+   - doc.text preview: - Page 1 -
+
+![Image](20251128_company_828658000.pdf__chunk_0000/page_0001/pictures_0.png)
+
+## 2025년 ...
+   - Sample Image ID: 20251128_company_828658000.pdf__chunk_0000/page_0001/pictures_0.png (image/png)
+   - Image data length: 27752 bytes
+[Success] default.pdf | Images extracted: 603
+   - doc.id: default.pdf
+   - doc.text preview: - Page 1 -
+
+![Image](default.pdf__chunk_0000/page_0001/pictures_0.png)
+
+![Image](default.pdf__chunk_...
+   - Sample Image ID: default.pdf__chunk_0000/page_0001/pictures_0.png (image/png)
+   - Image data length: 480596 bytes
+[Success] not3.pdf | Images extracted: 18
+   - doc.id: not3.pdf
+   - doc.text preview: - Page 1 -
+
+![Image](not3.pdf__chunk_0000/page_0001/pictures_0.png)
+
+![Image](not3.pdf__chunk_0000/p...
+   - Sample Image ID: not3.pdf__chunk_0000/page_0001/pictures_0.png (image/png)
+   - Image data length: 13480 bytes
+[Success] 2025년+8월+산업활동동향+보도자료 copy 4.pdf | Images extracted: 71
+   - doc.id: 2025년+8월+산업활동동향+보도자료 copy 4.pdf
+   - doc.text preview: - Page 1 -
+
+![Image](2025년+8월+산업활동동향+보도자료 copy 4.pdf__chunk_0000/page_0001/pictures_0.png)
+
+부
+
+광업제조업...
+   - Sample Image ID: 2025년+8월+산업활동동향+보도자료 copy 4.pdf__chunk_0000/page_0001/pictures_0.png (image/png)
+   - Image data length: 10680 bytes
+[Success] 2025년+8월+산업활동동향+보도자료 copy 3.pdf | Images extracted: 71
+   - doc.id: 2025년+8월+산업활동동향+보도자료 copy 3.pdf
+   - doc.text preview: - Page 1 -
+
+![Image](2025년+8월+산업활동동향+보도자료 copy 3.pdf__chunk_0000/page_0001/pictures_0.png)
+
+부
+
+광업제조업...
+   - Sample Image ID: 2025년+8월+산업활동동향+보도자료 copy 3.pdf__chunk_0000/page_0001/pictures_0.png (image/png)
+   - Image data length: 10680 bytes
+[Success] 25.8._._0807.1.pdf | Images extracted: 69
+   - doc.id: 25.8._._0807.1.pdf
+   - doc.text preview: - Page 1 -
+
+![Image](25.8._._0807.1.pdf__chunk_0000/page_0001/pictures_0.png)
+
+## 뭨뺯 IP 폋켗 픛숓삏 Pure...
+   - Sample Image ID: 25.8._._0807.1.pdf__chunk_0000/page_0001/pictures_0.png (image/png)
+   - Image data length: 15764 bytes
+[Success] 251204_lecture8_llm_agent.pdf | Images extracted: 52
+   - doc.id: 251204_lecture8_llm_agent.pdf
+   - doc.text preview: - Page 1 -
+
+![Image](251204_lecture8_llm_agent.pdf__chunk_0000/page_0001/pictures_0.png)
+
+- Page 2 -...
+   - Sample Image ID: 251204_lecture8_llm_agent.pdf__chunk_0000/page_0001/pictures_0.png (image/png)
+   - Image data length: 22948 bytes
+[Success] 2025년+8월+산업활동동향+보도자료 copy.pdf | Images extracted: 71
+   - doc.id: 2025년+8월+산업활동동향+보도자료 copy.pdf
+   - doc.text preview: - Page 1 -
+
+![Image](2025년+8월+산업활동동향+보도자료 copy.pdf__chunk_0000/page_0001/pictures_0.png)
+
+부
+
+광업제조업동향...
+   - Sample Image ID: 2025년+8월+산업활동동향+보도자료 copy.pdf__chunk_0000/page_0001/pictures_0.png (image/png)
+   - Image data length: 10680 bytes
+[Success] 2025년+8월+산업활동동향+보도자료 copy 2.pdf | Images extracted: 71
+   - doc.id: 2025년+8월+산업활동동향+보도자료 copy 2.pdf
+   - doc.text preview: - Page 1 -
+
+![Image](2025년+8월+산업활동동향+보도자료 copy 2.pdf__chunk_0000/page_0001/pictures_0.png)
+
+부
+
+광업제조업...
+   - Sample Image ID: 2025년+8월+산업활동동향+보도자료 copy 2.pdf__chunk_0000/page_0001/pictures_0.png (image/png)
+   - Image data length: 10680 bytes
+[Success] 2025년+8월+산업활동동향+보도자료 copy 5.pdf | Images extracted: 71
+   - doc.id: 2025년+8월+산업활동동향+보도자료 copy 5.pdf
+   - doc.text preview: - Page 1 -
+
+![Image](2025년+8월+산업활동동향+보도자료 copy 5.pdf__chunk_0000/page_0001/pictures_0.png)
+
+부
+
+광업제조업...
+   - Sample Image ID: 2025년+8월+산업활동동향+보도자료 copy 5.pdf__chunk_0000/page_0001/pictures_0.png (image/png)
+   - Image data length: 10680 bytes
+[Success] 과제4_11주차_2025311605_최윤주.docx | Images extracted: 17
+   - doc.id: 과제4_11주차_2025311605_최윤주.docx
+   - doc.text preview: **11주차 실습 (과제4)**
+
+**데이터베이스 구축**
+
+**학과 \_\_\_디지털애널리틱스\_\_\_\_\_\_  학기 \_2\_\_\_\_  학번 2025311605\_  ...
+   - Sample Image ID: 과제4_11주차_2025311605_최윤주/images/pictures_0.png (image/png)
+   - Image data length: 2604244 bytes
+[Success] chart_example.xlsx | Images extracted: 0
+   - doc.id: chart_example.xlsx
+   - doc.text preview: - Sheet: no_chart (Page 1) -
+
+| hello   |
+|---------|
+
+| hello2   |
+|----------|
+
+|   순차입금/EBITDA (배...
+[Success] AI_Safety_진단_툴_사례분석.pptx | Images extracted: 0
+   - doc.id: AI_Safety_진단_툴_사례분석.pptx
+   - doc.text preview: - Slide 1 -
+
+# AI Safety 진단 툴  사례 분석
+
+김 능 준
+
+2025.11.05
+
+- Slide 2 -
+
+# ① 기술적 취약점 분석 도구
+
+| 이름       ...
