@@ -1,5 +1,29 @@
 # uv add psutil torch pikepdf
+"""
+Document Parsing Tool with Optimized Multi-GPU/CPU Processing
+
+Performance Optimizations Applied:
+1. CPU Thread Control: Environment variables prevent CPU thread contention
+2. Dynamic Worker Allocation: calculate_optimal_workers() balances GPU/CPU resources
+3. Generator-based Chunking: _generate_chunks_lazy() eliminates pre-processing bottleneck
+4. Long-lived Workers: Increased worker_restart_interval (100) reduces model loading overhead
+5. Multi-worker per GPU: workers_per_gpu=2 maximizes GPU utilization
+6. No CPU Affinity: OS handles CPU scheduling for better portability
+
+Architecture:
+- Main process generates chunks on-demand via generator
+- Worker processes start immediately and grab chunks as they're ready
+- No blocking wait for all chunks to be pre-processed
+- GPU workers can process multiple chunks concurrently per GPU
+"""
+
+# Environment variables for CPU thread control (prevents CPU thread contention)
 import os
+os.environ["OMP_NUM_THREADS"] = "4"
+os.environ["MKL_NUM_THREADS"] = "4"
+os.environ["OPENBLAS_NUM_THREADS"] = "4"
+os.environ["NUMEXPR_NUM_THREADS"] = "4"
+
 import shutil
 import time
 import math
@@ -10,7 +34,7 @@ import gc
 import torch
 from pathlib import Path
 from io import BytesIO
-from typing import List, Dict, Any, Tuple, Optional
+from typing import List, Dict, Any, Tuple, Optional, Generator
 from dataclasses import dataclass
 from queue import Empty
 
@@ -55,7 +79,63 @@ class ChunkResult:
     images: List[Figure]
     success: bool
     error_msg: Optional[str] = None
-    
+
+
+def calculate_optimal_workers(
+    num_gpus: int,
+    total_cpus: int,
+    workers_per_gpu: int = 2,
+    reserved_cpus: int = 2
+) -> Tuple[int, Optional[List[int]]]:
+    """
+    Calculate optimal number of worker processes for GPU/CPU hybrid environments.
+
+    Strategy:
+    - GPU mode: Spawn multiple workers per GPU to maximize GPU utilization
+    - CPU mode: Use available CPUs minus reserved cores for system operations
+    - Hybrid: Balance between GPU capability and CPU availability
+
+    Args:
+        num_gpus: Number of available GPUs
+        total_cpus: Total number of CPU cores available
+        workers_per_gpu: Number of worker processes per GPU (default: 2)
+        reserved_cpus: Number of CPUs to reserve for system/main process (default: 2)
+
+    Returns:
+        Tuple of (num_workers, gpu_ids) where:
+        - num_workers: Optimal number of worker processes
+        - gpu_ids: List of GPU IDs to assign (None for CPU-only mode)
+
+    Examples:
+        >>> calculate_optimal_workers(num_gpus=2, total_cpus=16, workers_per_gpu=2)
+        (4, [0, 1, 0, 1])  # 4 workers cycling through 2 GPUs
+
+        >>> calculate_optimal_workers(num_gpus=0, total_cpus=8, reserved_cpus=2)
+        (6, None)  # 6 CPU workers (8 - 2 reserved)
+    """
+    if num_gpus > 0:
+        # GPU mode: workers_per_gpu workers for each GPU
+        gpu_based_workers = num_gpus * workers_per_gpu
+
+        # CPU constraint: don't spawn more workers than available CPUs
+        available_cpus = max(1, total_cpus - reserved_cpus)
+        cpu_limited_workers = min(gpu_based_workers, available_cpus)
+
+        num_workers = cpu_limited_workers
+
+        # Assign GPUs in round-robin fashion
+        # Example: 2 GPUs, 4 workers -> [0, 1, 0, 1]
+        gpu_ids = [i % num_gpus for i in range(num_workers)]
+
+        return num_workers, gpu_ids
+    else:
+        # CPU-only mode
+        available_cpus = max(1, total_cpus - reserved_cpus)
+        num_workers = available_cpus
+
+        return num_workers, None
+
+
 @dataclass
 class ParserConfig:
     """
@@ -64,12 +144,16 @@ class ParserConfig:
     Attributes:
         do_ocr: Whether to perform OCR on images within documents
         do_table_structure: Whether to detect and preserve table structures
+        do_formula_enrichment: Whether to enable formula enrichment
         generate_picture_images: Whether to generate picture images from documents
         images_scale: Scale factor for image resolution (higher = better quality)
         layout_batch_size: Batch size for layout detection processing
         table_batch_size: Batch size for table structure recognition
         doc_batch_size: Number of documents to process in parallel
         doc_batch_concurrency: Maximum concurrent document processing threads
+        chunk_page_size: Number of pages per chunk for PDF splitting
+        worker_restart_interval: Number of chunks before worker restart (anti-leak)
+        cpu_workers: Number of worker processes when no GPU is available
     """
 
     do_ocr: bool = False
@@ -87,11 +171,13 @@ class ParserConfig:
     doc_batch_concurrency: int = 1    # Number of concurrent workers in a process (set to 1 for stability)
 
     # Batch & Resource Settings
-    chunk_page_size: int = 10          # Number of pages per chunk
-    worker_restart_interval: int = 20  # Restart worker after processing N chunks (Anti-Leak)
-    
-    # CPU specific
-    cpu_workers: int = 4               # Number of processes if no GPU
+    chunk_page_size: int = 10           # Number of pages per chunk
+    worker_restart_interval: int = 100  # Restart worker after processing N chunks (Anti-Leak, increased for long-lived workers)
+
+    # Worker allocation settings
+    workers_per_gpu: int = 2            # Number of worker processes per GPU (GPU mode)
+    reserved_cpus: int = 2              # Number of CPUs reserved for system/main process
+    cpu_workers: int = 4                # Fallback: Number of worker processes when no GPU is available (deprecated, use calculate_optimal_workers)
 
 
 def _split_pdf_to_chunks(
@@ -100,7 +186,13 @@ def _split_pdf_to_chunks(
     chunk_page_size: int
 ) -> List[Tuple[str, int, BytesIO, int]]:
     """
+    [DEPRECATED] Use _generate_chunks_lazy() instead for better performance.
+
     Split a PDF file into page chunks using pikepdf (preserves ToUnicode maps and image resources).
+
+    This function pre-processes all chunks before returning, creating a bottleneck.
+    The generator-based approach (_generate_chunks_lazy) yields chunks on-demand,
+    allowing workers to start processing immediately.
 
     Args:
         file_id: Original filename
@@ -147,6 +239,96 @@ def _split_pdf_to_chunks(
         traceback.print_exc()
 
     return chunks
+
+
+def _generate_chunks_lazy(
+    file_dict: Dict[str, BytesIO],
+    chunk_page_size: int
+) -> Generator[Tuple[str, int, str, bytes, int, bool, BytesIO], None, None]:
+    """
+    Generator that yields chunks on-demand for immediate task queue feeding.
+
+    This eliminates the bottleneck where the main process pre-processes all PDFs
+    before workers can start. Instead, chunks are generated and fed to workers
+    immediately as they become available.
+
+    Args:
+        file_dict: Dictionary mapping filenames to BytesIO file objects
+        chunk_page_size: Number of pages per PDF chunk
+
+    Yields:
+        Tuple of (chunk_filename, chunk_index, original_file_id, chunk_bytes,
+                  page_offset, is_pdf, original_stream)
+        where:
+        - chunk_filename: Name for this chunk
+        - chunk_index: Index of this chunk (0 for non-PDF files)
+        - original_file_id: Original filename
+        - chunk_bytes: Chunk data as bytes
+        - page_offset: Starting page number for this chunk
+        - is_pdf: Whether this is a PDF file
+        - original_stream: Original file stream (for non-PDF files)
+    """
+    for filename, file_stream in file_dict.items():
+        ext = Path(filename).suffix.lower()
+
+        if ext == '.pdf':
+            # PDF: Generate chunks on-the-fly
+            file_stream.seek(0)
+            pdf_bytes = file_stream.read()
+
+            try:
+                with pikepdf.open(BytesIO(pdf_bytes)) as pdf:
+                    total_pages = len(pdf.pages)
+                    num_chunks = (total_pages + chunk_page_size - 1) // chunk_page_size
+
+                    print(f"[ChunkGenerator] Streaming {num_chunks} chunks from {filename}")
+
+                    for chunk_idx in range(num_chunks):
+                        start_page = chunk_idx * chunk_page_size
+                        end_page = min(start_page + chunk_page_size, total_pages)
+
+                        # Create chunk
+                        dst = pikepdf.new()
+                        for i in range(start_page, end_page):
+                            dst.pages.append(pdf.pages[i])
+
+                        # Save to memory
+                        chunk_stream = BytesIO()
+                        dst.save(chunk_stream)
+                        chunk_stream.seek(0)
+                        chunk_bytes = chunk_stream.read()
+
+                        chunk_filename = f"{filename}__chunk_{chunk_idx:04d}.pdf"
+
+                        # Yield immediately - worker can grab this right away!
+                        yield (
+                            chunk_filename,
+                            chunk_idx,
+                            filename,  # original_file_id
+                            chunk_bytes,
+                            start_page,  # page_offset
+                            True,  # is_pdf
+                            None  # original_stream (not needed for chunked PDFs)
+                        )
+
+            except Exception as e:
+                print(f"[ChunkGenerator] Error processing {filename}: {e}")
+                traceback.print_exc()
+
+        else:
+            # Non-PDF: Yield as-is
+            file_stream.seek(0)
+            file_bytes = file_stream.read()
+
+            yield (
+                filename,
+                0,  # chunk_index
+                filename,  # original_file_id
+                file_bytes,
+                0,  # page_offset
+                False,  # is_pdf
+                file_stream  # original_stream
+            )
 
 
 class DoclingParser:
@@ -973,8 +1155,7 @@ def _chunk_worker_process(
     task_queue: multiprocessing.Queue,
     result_queue: multiprocessing.Queue,
     config_dict: Dict[str, Any],
-    worker_restart_interval: int,
-    cpus_per_worker: Optional[int] = None
+    worker_restart_interval: int
 ):
     """
     Worker process that processes document chunks from a queue.
@@ -986,31 +1167,9 @@ def _chunk_worker_process(
         result_queue: Queue for returning ChunkResult objects
         config_dict: Configuration dictionary
         worker_restart_interval: Number of chunks to process before self-termination
-        cpus_per_worker: Number of CPUs to assign to this worker (CPU mode only)
     """
-    device_str = f"GPU-{gpu_id}" if gpu_id is not None else f"CPU-{worker_id}"
+    device_str = f"GPU-{gpu_id}" if gpu_id is not None else f"CPU-Worker{worker_id}"
     print(f"  [Worker-{device_str}] Worker process started")
-
-    # Set CPU affinity for CPU-only workers (SLURM/Docker safe)
-    if gpu_id is None and cpus_per_worker is not None and cpus_per_worker > 0:
-        try:
-            # Get currently allowed CPUs (respects SLURM/cgroup limits)
-            allowed_cpus = sorted(os.sched_getaffinity(0))
-            total_allowed = len(allowed_cpus)
-
-            if total_allowed >= cpus_per_worker:
-                # Calculate this worker's CPU slice
-                start_idx = worker_id * cpus_per_worker
-                end_idx = min(start_idx + cpus_per_worker, total_allowed)
-
-                # Assign CPU subset
-                cpu_set = set(allowed_cpus[start_idx:end_idx])
-                os.sched_setaffinity(0, cpu_set)
-                print(f"[Worker-{device_str}] Set CPU affinity to: {sorted(cpu_set)}")
-            else:
-                print(f"[Worker-{device_str}] Warning: Not enough CPUs ({total_allowed}) for requested affinity ({cpus_per_worker})")
-        except Exception as e:
-            print(f"[Worker-{device_str}] Failed to set CPU affinity: {e}")
 
     try:
         # Reconstruct config
@@ -1110,8 +1269,7 @@ class WorkerManager:
         num_workers: int,
         gpu_ids: Optional[List[int]],
         config_dict: Dict[str, Any],
-        worker_restart_interval: int,
-        cpus_per_worker: Optional[int] = None
+        worker_restart_interval: int
     ):
         """
         Args:
@@ -1119,13 +1277,11 @@ class WorkerManager:
             gpu_ids: List of GPU IDs (None for CPU-only mode)
             config_dict: Configuration dictionary
             worker_restart_interval: Chunks per worker before restart
-            cpus_per_worker: CPUs to assign per worker (CPU mode only)
         """
         self.num_workers = num_workers
         self.gpu_ids = gpu_ids
         self.config_dict = config_dict
         self.worker_restart_interval = worker_restart_interval
-        self.cpus_per_worker = cpus_per_worker
 
         self.task_queue = multiprocessing.Queue()
         self.result_queue = multiprocessing.Queue()
@@ -1148,8 +1304,7 @@ class WorkerManager:
                 self.task_queue,
                 self.result_queue,
                 self.config_dict,
-                self.worker_restart_interval,
-                self.cpus_per_worker
+                self.worker_restart_interval
             )
         )
         p.start()
@@ -1172,13 +1327,12 @@ class WorkerManager:
                     self.task_queue,
                     self.result_queue,
                     self.config_dict,
-                    self.worker_restart_interval,
-                    self.cpus_per_worker
+                    self.worker_restart_interval
                 )
             )
             p.start()
             self.processes[worker_id] = p  # Update process list
-            device_name = f"GPU-{gpu_id}" if gpu_id is not None else f"CPU-{worker_id}"
+            device_name = f"GPU-{gpu_id}" if gpu_id is not None else f"CPU-Worker{worker_id}"
             print(f" [Manager] Worker {device_name} restarted successfully")
 
     def shutdown(self):
@@ -1211,7 +1365,9 @@ class DocTool:
         do_ocr: bool = False,
         do_table_structure: bool = True,
         chunk_page_size: int = 10,
-        worker_restart_interval: int = 20,
+        worker_restart_interval: int = 100,
+        workers_per_gpu: int = 2,
+        reserved_cpus: int = 2,
         cpu_workers: int = 4,
     ):
         """
@@ -1221,22 +1377,27 @@ class DocTool:
             do_ocr: Whether to perform OCR on images within documents
             do_table_structure: Whether to detect and preserve table structures
             chunk_page_size: Number of pages per PDF chunk
-            worker_restart_interval: Number of chunks before worker restart
-            cpu_workers: Number of CPU worker processes (used if no GPU)
+            worker_restart_interval: Number of chunks before worker restart (increased default for long-lived workers)
+            workers_per_gpu: Number of worker processes per GPU (default: 2)
+            reserved_cpus: Number of CPUs reserved for system/main process (default: 2)
+            cpu_workers: Fallback number of CPU worker processes (deprecated, use calculate_optimal_workers)
         """
         self.config = ParserConfig(
             do_ocr=do_ocr,
             do_table_structure=do_table_structure,
             chunk_page_size=chunk_page_size,
             worker_restart_interval=worker_restart_interval,
+            workers_per_gpu=workers_per_gpu,
+            reserved_cpus=reserved_cpus,
             cpu_workers=cpu_workers,
         )
 
     def run(self, file_dict: Dict[str, BytesIO]) -> List[Document]:
         """
-        Process multiple documents to Markdown format in batch.
+        Process multiple documents to Markdown format in batch with optimized resource allocation.
 
-        Automatically chunks PDFs and distributes work across available GPUs/CPUs.
+        Uses generator-based chunking for immediate task feeding and calculate_optimal_workers
+        for dynamic worker allocation based on available GPU/CPU resources.
 
         Args:
             file_dict: Dictionary mapping filenames (with extensions) to BytesIO file objects
@@ -1246,76 +1407,30 @@ class DocTool:
         """
         num_gpus = torch.cuda.device_count()
 
-        print(f"[DocTool] Detected {num_gpus} GPU(s)")
+        # Get total available CPUs
+        try:
+            total_cpus = len(os.sched_getaffinity(0))
+        except Exception:
+            total_cpus = os.cpu_count() or 4
 
-        # Determine worker configuration
-        if num_gpus > 0:
-            num_workers = num_gpus
-            gpu_ids = list(range(num_gpus))
-            cpus_per_worker = None  # GPU mode doesn't use CPU affinity
-            print(f"[DocTool] Using {num_workers} GPU workers")
+        print(f"[DocTool] System Resources: {num_gpus} GPU(s), {total_cpus} CPU(s)")
+
+        # Calculate optimal worker configuration
+        num_workers, gpu_ids = calculate_optimal_workers(
+            num_gpus=num_gpus,
+            total_cpus=total_cpus,
+            workers_per_gpu=self.config.workers_per_gpu,
+            reserved_cpus=self.config.reserved_cpus
+        )
+
+        if gpu_ids:
+            print(f"[DocTool] GPU Mode: {num_workers} workers across {num_gpus} GPU(s) ({self.config.workers_per_gpu} workers/GPU)")
+            print(f"[DocTool] GPU Assignment: {gpu_ids}")
         else:
-            num_workers = self.config.cpu_workers
-            gpu_ids = None
+            print(f"[DocTool] CPU Mode: {num_workers} workers ({total_cpus - self.config.reserved_cpus} available CPUs)")
 
-            # Calculate CPUs per worker
-            try:
-                allowed_cpus = sorted(os.sched_getaffinity(0))
-                total_cpus = len(allowed_cpus)
-                cpus_per_worker = total_cpus // num_workers
-                print(f"[DocTool] Using {num_workers} CPU workers")
-                print(f"[DocTool] Available CPUs: {total_cpus}, CPUs per worker: {cpus_per_worker}")
-            except Exception as e:
-                print(f"[DocTool] Failed to detect CPU affinity: {e}")
-                cpus_per_worker = None
-
-        # Prepare tasks: chunk PDFs and queue non-PDF files
-        all_chunks = []
-        non_pdf_files = {}
-        
+        # Initialize document tracker for timing
         doc_tracker = {}
-        for filename, file_stream in file_dict.items():
-            ext = Path(filename).suffix.lower()
-
-            if ext == '.pdf':
-                # Read PDF bytes
-                file_stream.seek(0)
-                pdf_bytes = file_stream.read()
-
-                # Split into chunks
-                chunks = _split_pdf_to_chunks(
-                    file_id=filename,
-                    pdf_bytes=pdf_bytes,
-                    chunk_page_size=self.config.chunk_page_size
-                )
-
-                doc_tracker[filename] = {
-                    "total": len(chunks),
-                    "received": 0,
-                    "start_time": time.perf_counter()  # time tracker
-                }
-
-                # Add to task list
-                for chunk_filename, chunk_index, chunk_stream, start_page in chunks:
-                    chunk_stream.seek(0)
-                    chunk_bytes = chunk_stream.read()
-
-                    all_chunks.append((
-                        chunk_filename,
-                        chunk_index,
-                        filename,  # original_file_id
-                        chunk_bytes,
-                        start_page  # original page offset
-                    ))
-
-                print(f"[DocTool] Split {filename} into {len(chunks)} chunks")
-
-            else:
-                # Non-PDF files processed directly (no chunking)
-                non_pdf_files[filename] = file_stream
-
-        print(f"[DocTool] Total chunks to process: {len(all_chunks)}")
-        print(f"[DocTool] Non-PDF files: {len(non_pdf_files)}")
 
         # Convert config to dict
         config_dict = {
@@ -1337,19 +1452,45 @@ class DocTool:
             num_workers=num_workers,
             gpu_ids=gpu_ids,
             config_dict=config_dict,
-            worker_restart_interval=self.config.worker_restart_interval,
-            cpus_per_worker=cpus_per_worker
+            worker_restart_interval=self.config.worker_restart_interval
         )
 
+        # Start workers immediately - they'll wait for tasks
         manager.start_workers()
 
-        # Distribute tasks to queue
-        for chunk_task in all_chunks:
-            manager.task_queue.put(chunk_task)
+        # Feed chunks to queue using generator (eliminates pre-chunking bottleneck)
+        # This allows workers to start processing immediately as chunks become available
+        print("[DocTool] Starting lazy chunk generation...")
+
+        total_tasks = 0
+        chunk_results = []
+
+        # Generator produces chunks on-demand
+        chunk_generator = _generate_chunks_lazy(file_dict, self.config.chunk_page_size)
+
+        # Feed tasks to queue as they're generated
+        for chunk_data in chunk_generator:
+            chunk_filename, chunk_index, original_file_id, chunk_bytes, page_offset, is_pdf, _ = chunk_data
+
+            # Initialize tracker for new files
+            if is_pdf and original_file_id not in doc_tracker:
+                doc_tracker[original_file_id] = {
+                    "total": 0,  # Will be incremented as chunks are generated
+                    "received": 0,
+                    "start_time": time.perf_counter()
+                }
+
+            if is_pdf:
+                doc_tracker[original_file_id]["total"] += 1
+
+            # Put task in queue immediately
+            task = (chunk_filename, chunk_index, original_file_id, chunk_bytes, page_offset)
+            manager.task_queue.put(task)
+            total_tasks += 1
+
+        print(f"[DocTool] Generated and queued {total_tasks} total tasks")
 
         # Collect results
-        chunk_results = []
-        total_tasks = len(all_chunks)
         received_results = 0
 
         print(f"[DocTool] Waiting for {total_tasks} chunk results...")
@@ -1359,7 +1500,7 @@ class DocTool:
             for i in range(manager.num_workers):
                 if not manager.processes[i].is_alive():
                     gpu_id = manager.gpu_ids[i] if manager.gpu_ids else None
-                    device_name = f"GPU-{gpu_id}" if gpu_id is not None else f"CPU-{i}"
+                    device_name = f"GPU-{gpu_id}" if gpu_id is not None else f"CPU-Worker{i}"
                     print(f"[Manager] Detected stopped worker {device_name}, restarting...")
                     manager.restart_worker(i, gpu_id)
 
@@ -1398,14 +1539,8 @@ class DocTool:
         print(f"[DocTool] All chunks processed. Merging results...")
 
         # Merge chunk results into final documents
+        # Generator-based approach processes ALL files (PDF and non-PDF) through workers
         final_documents = self._merge_chunk_results(chunk_results)
-
-        # Process non-PDF files (if any)
-        if non_pdf_files:
-            print(f"[DocTool] Processing {len(non_pdf_files)} non-PDF files...")
-            parser = DoclingParser(config=self.config, gpu_id=None)
-            non_pdf_docs = parser.parse(non_pdf_files)
-            final_documents.extend(non_pdf_docs)
 
         print(f"[DocTool] Processing complete. Total documents: {len(final_documents)}")
 
@@ -1493,8 +1628,10 @@ if __name__ == "__main__":
 
     processor = DocTool(
         chunk_page_size=10,
-        worker_restart_interval=20,
-        cpu_workers=4
+        worker_restart_interval=100,  # Increased for long-lived workers (reduces model loading overhead)
+        workers_per_gpu=2,             # 2 workers per GPU for better GPU utilization
+        reserved_cpus=2,               # Reserve 2 CPUs for system/main process
+        cpu_workers=4                  # Fallback for CPU-only mode (deprecated, auto-calculated)
     )
 
     file_dict = {}

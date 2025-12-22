@@ -10,8 +10,8 @@
 
 echo "Job ID: $SLURM_JOB_ID"
 echo "Allocated GPUs: $CUDA_VISIBLE_DEVICES"
-echo "mm_doc_tool_docbatch_fallback_figureclass_basemodel_quantization.py"
-echo "GPU script"
+echo "/home/shaush/work/no_cpu_set_mm_doc_tool_docbatch_fallback_figureclass_basemodel_quantization.py"
+echo "GPU script w/o limit"
 
 # # thread threshold (CPU)
 # export OMP_NUM_THREADS=4
@@ -20,7 +20,7 @@ echo "GPU script"
 
 cd /home/shaush/work
 source .venv/bin/activate
-python /home/shaush/work/mm_doc_tool_docbatch_fallback_figureclass_basemodel_quantization.py
+python /home/shaush/work/no_cpu_set_mm_doc_tool_docbatch_fallback_figureclass_basemodel_quantization.py
 
 # SBATCH -p dell_cpu
 # SBATCH --qos=cpu_qos 
