@@ -1,8 +1,8 @@
 Batch Processing Report (Multi-GPU/CPU)
 Total Files: 17
-Total Time: 879.68s
-Average Time per File: 51.75s
-GPUs Used: 4
+Total Time: 3808.74s
+Average Time per File: 224.04s
+GPUs Used: CPU only
 ==================================================
 [Success] 연세대_재학증명서.pdf | Images extracted: 3
    - doc.id: 연세대_재학증명서.pdf
@@ -55,6 +55,15 @@ anthropic.com
 ## Changel...
    - Sample Image ID: Claude Sonnet 4.5 System Card.pdf__chunk_0002/page_0021/pictures_0.png (image/png)
    - Image data length: 67392 bytes
+[Success] default.pdf | Images extracted: 498
+   - doc.id: default.pdf
+   - doc.text preview: - Page 1 -
+
+![Image](default.pdf__chunk_0000/page_0001/pictures_0.png)
+
+![Image](default.pdf__chunk_...
+   - Sample Image ID: default.pdf__chunk_0000/page_0001/pictures_0.png (image/png)
+   - Image data length: 480596 bytes
 [Success] 20251128_company_828658000.pdf | Images extracted: 7
    - doc.id: 20251128_company_828658000.pdf
    - doc.text preview: - Page 1 -
@@ -64,15 +73,6 @@ anthropic.com
 ## 2025년 ...
    - Sample Image ID: 20251128_company_828658000.pdf__chunk_0000/page_0001/pictures_0.png (image/png)
    - Image data length: 27752 bytes
-[Success] default.pdf | Images extracted: 616
-   - doc.id: default.pdf
-   - doc.text preview: - Page 1 -
-
-![Image](default.pdf__chunk_0000/page_0001/pictures_0.png)
-
-![Image](default.pdf__chunk_...
-   - Sample Image ID: default.pdf__chunk_0000/page_0001/pictures_0.png (image/png)
-   - Image data length: 480596 bytes
 [Success] not3.pdf | Images extracted: 18
    - doc.id: not3.pdf
    - doc.text preview: - Page 1 -

@@ -9,7 +9,7 @@
 
 echo "Job ID: $SLURM_JOB_ID"
 echo "Allocated GPUs: $CUDA_VISIBLE_DEVICES"
-echo "CPU   CPU   CPU core: 32 worker: 4 per: 8"
+echo "/home/shaush/work/no_cpu_set_mm_doc_tool_docbatch_fallback_figureclass_basemodel_quantization.py"
 
 
 # # thread threshold 너무올리면 속도 느려짐
@@ -22,7 +22,7 @@ echo "CPU   CPU   CPU core: 32 worker: 4 per: 8"
 
 cd /home/shaush/work
 source .venv/bin/activate
-python mm_doc_tool_docbatch_fallback_figureclass_basemodel_quantization.py
+python /home/shaush/work/no_cpu_set_mm_doc_tool_docbatch_fallback_figureclass_basemodel_quantization.py
 
 # SBATCH -p dell_cpu
 # SBATCH --qos=cpu_qos 

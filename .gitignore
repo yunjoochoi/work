@@ -21,7 +21,7 @@ logs_1/
 # C extensions
 *.so
 parsed-outputs-origin/
-
+parsed-outputs-cpu-core8/
 # Distribution / packaging
 .Python
 build/

@@ -13,11 +13,6 @@ echo "Allocated GPUs: $CUDA_VISIBLE_DEVICES"
 echo "/home/shaush/work/no_cpu_set_mm_doc_tool_docbatch_fallback_figureclass_basemodel_quantization.py"
 echo "GPU script w/o limit"
 
-# # thread threshold (CPU)
-# export OMP_NUM_THREADS=4
-# export MKL_NUM_THREADS=4
-# export TORCH_NUM_THREADS=4
-
 cd /home/shaush/work
 source .venv/bin/activate
 python /home/shaush/work/no_cpu_set_mm_doc_tool_docbatch_fallback_figureclass_basemodel_quantization.py
@@ -34,3 +29,8 @@ python /home/shaush/work/no_cpu_set_mm_doc_tool_docbatch_fallback_figureclass_ba
 # SBATCH -p dell_rtx3090
 # SBATCH -p suma_rtx4090
 
+
+# # thread threshold (CPU)
+# export OMP_NUM_THREADS=4
+# export MKL_NUM_THREADS=4
+# export TORCH_NUM_THREADS=4

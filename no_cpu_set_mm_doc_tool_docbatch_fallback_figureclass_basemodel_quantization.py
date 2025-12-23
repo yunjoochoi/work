@@ -24,13 +24,9 @@ os.environ["MKL_NUM_THREADS"] = "4"
 os.environ["OPENBLAS_NUM_THREADS"] = "4"
 os.environ["NUMEXPR_NUM_THREADS"] = "4"
 
-import shutil
 import time
-import math
-import tempfile
 import multiprocessing
 import traceback
-import gc
 import torch
 from pathlib import Path
 from io import BytesIO
@@ -85,7 +81,7 @@ def calculate_optimal_workers(
     num_gpus: int,
     total_cpus: int,
     workers_per_gpu: int = 2,
-    reserved_cpus: int = 2
+    reserved_cpus: int = 4
 ) -> Tuple[int, Optional[List[int]]]:
     """
     Calculate optimal number of worker processes for GPU/CPU hybrid environments.
@@ -130,7 +126,7 @@ def calculate_optimal_workers(
         return num_workers, gpu_ids
     else:
         # CPU-only mode
-        available_cpus = max(1, total_cpus - reserved_cpus)
+        available_cpus = max(1, total_cpus // reserved_cpus)
         num_workers = available_cpus
 
         return num_workers, None
@@ -176,7 +172,7 @@ class ParserConfig:
 
     # Worker allocation settings
     workers_per_gpu: int = 2            # Number of worker processes per GPU (GPU mode)
-    reserved_cpus: int = 2              # Number of CPUs reserved for system/main process
+    reserved_cpus: int = 4              # Number of CPUs reserved for system/main process
     cpu_workers: int = 4                # Fallback: Number of worker processes when no GPU is available (deprecated, use calculate_optimal_workers)
 
 
@@ -1367,7 +1363,7 @@ class DocTool:
         chunk_page_size: int = 10,
         worker_restart_interval: int = 100,
         workers_per_gpu: int = 2,
-        reserved_cpus: int = 2,
+        reserved_cpus: int = 4,
         cpu_workers: int = 4,
     ):
         """
@@ -1628,9 +1624,9 @@ if __name__ == "__main__":
 
     processor = DocTool(
         chunk_page_size=10,
-        worker_restart_interval=100,  # Increased for long-lived workers (reduces model loading overhead)
+        worker_restart_interval=100,   # Increased for long-lived workers (reduces model loading overhead)
         workers_per_gpu=2,             # 2 workers per GPU for better GPU utilization
-        reserved_cpus=2,               # Reserve 2 CPUs for system/main process
+        reserved_cpus=4,               # Reserve 2 CPUs for system/main process
         cpu_workers=4                  # Fallback for CPU-only mode (deprecated, auto-calculated)
     )
 
