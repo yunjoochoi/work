@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=docling_parser 
 #SBATCH -p dell_rtx3090
-#SBATCH --gres=gpu:4
+#SBATCH --gres=gpu:1
 #SBATCH --mem=32G
 #SBATCH --cpus-per-task=8        
 #SBATCH --output=logs_gpu/out_%j.out 
@@ -10,12 +10,12 @@
 
 echo "Job ID: $SLURM_JOB_ID"
 echo "Allocated GPUs: $CUDA_VISIBLE_DEVICES"
-echo "/home/shaush/work/no_cpu_set_mm_doc_tool_docbatch_fallback_figureclass_basemodel_quantization.py"
+echo "/home/shaush/work/mm_doc_tool_docbatch_fallback_figureclass_basemodel.py"
 echo "GPU script w/o limit"
 
 cd /home/shaush/work
 source .venv/bin/activate
-python /home/shaush/work/no_cpu_set_mm_doc_tool_docbatch_fallback_figureclass_basemodel_quantization.py
+python /home/shaush/work/mm_doc_tool_docbatch_fallback_figureclass_basemodel.py
 
 # SBATCH -p dell_cpu
 # SBATCH --qos=cpu_qos 

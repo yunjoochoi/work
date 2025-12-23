@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional, List, Tuple
 
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling.datamodel.base_models import InputFormat
-from docling.datamodel.pipeline_options import PdfPipelineOptions
+from docling.datamodel.pipeline_options import PdfPipelineOptions, TableFormerMode # 수정
 from docling_core.types.doc.base import ImageRefMode
 from docling_core.types.io import DocumentStream
 from docling.datamodel.settings import settings
@@ -124,9 +124,13 @@ class DoclingParser:
         options.generate_picture_images = config.generate_picture_images
         options.images_scale = config.images_scale
 
+        if config.do_table_structure:
+            options.table_structure_options.mode = TableFormerMode.FAST
+
         if hasattr(options, "layout_batch_size"):
             options.layout_batch_size = config.layout_batch_size
 
+        # 수정
         if hasattr(options, "table_batch_size"):
             options.table_batch_size = config.table_batch_size
 
