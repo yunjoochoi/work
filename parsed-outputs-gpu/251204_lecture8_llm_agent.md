@@ -1,54 +1,54 @@
 - Page 1 -
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0000/page_0001/pictures_0.png)
+![Image](251204_lecture8_llm_agent/page_0001/pictures_0.png)
 
 - Page 2 -
 
 ## · Attendance
 
-- https://docs.google.com/spreadsheets/d/112HaQ78-H2umGd\_-MDMkflK79wkcr1Ki1Axs8H-isFU/edit?usp=sharing
+- https://docs.google.com/spreadsheets/d/112HaQ78-H2umGd\_-MDMkflK79wkcr1Ki1Axs8H -isFU/edit?usp=sharing
 
 ## Announcements
 
 - Page 3 -
 
-## Introduction: Multi-agent system
+## Introduction: Multi -agent system
 
-- Multi-agent system (or Agentic AI) is one of the hottest topic in AI
+- Multi -agent system (or Agentic AI) is one of the hottest topic in AI
 - In terms of market size
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0000/page_0003/pictures_1.png)
+![Image](251204_lecture8_llm_agent/page_0003/pictures_1.png)
 
 - Page 4 -
 
-## Introduction: Multi-agent system
+## Introduction: Multi -agent system
 
-- Multi-agent system (or Agentic AI) is one of the hottest topic in AI
-- In terms of market size, research field [1,2]
+- Multi -agent system (or Agentic AI) is one of the hottest topic in AI
+- In terms of market size, research field[1,2]
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0000/page_0004/pictures_2.png)
+![Image](251204_lecture8_llm_agent/page_0004/pictures_2.png)
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0000/page_0004/pictures_3.png)
+![Image](251204_lecture8_llm_agent/page_0004/pictures_3.png)
 
 - Page 5 -
 
-## Introduction: Multi-agent system
+## Introduction: Multi -agent system
 
-- Multi-agent system?
-- [1]: 'multiple intelligent agents' + 'impossible for individual agent'
+- Multi -agent system?
+- [1]: "multiple intelligent agents" + "impossible for individual agent"
 
 - Page 6 -
 
-## Introduction: Multi-agent system
+## Introduction: Multi -agent system
 
-- Multi-agent system?
-- [1]: 'multiple intelligent agents ' + 'impossible for individual agent' + ' advance of LLMs '
+- Multi -agent system?
+- [1]: "multiple intelligent agents" + "impossible for individual agent" + "advance of LLMs "
 
 (Perception, reasoning, action) + improving
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0000/page_0006/pictures_4.png)
+![Image](251204_lecture8_llm_agent/page_0006/pictures_4.png)
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0000/page_0006/pictures_5.png)
+![Image](251204_lecture8_llm_agent/page_0006/pictures_5.png)
 
 - Page 7 -
 
@@ -57,7 +57,7 @@
 - Then, what are important for LLM agents?
 - LLM + (1) Planning &amp; Action + (2) Tools + (3) Memory
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0000/page_0007/pictures_6.png)
+![Image](251204_lecture8_llm_agent/page_0007/pictures_6.png)
 
 - Page 8 -
 
@@ -68,7 +68,7 @@
 
 Not simply improved by just scaling-up model &amp; data size
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0000/page_0008/pictures_7.png)
+![Image](251204_lecture8_llm_agent/page_0008/pictures_7.png)
 
 - Page 9 -
 
@@ -90,23 +90,23 @@ Not simply improved by just scaling-up model &amp; data size
 
 ## Planning &amp; Action: ReAct
 
-- ReAct [1] : integrating reasoning and acting within LLM
+- ReAct[1]: integrating reasoning and acting within LLM
 - By extending action as a combination of task-specific discrete actions and language
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0001/page_0011/pictures_0.png)
+![Image](251204_lecture8_llm_agent/page_0011/pictures_8.png)
 
 - Page 12 -
 
 ## Planning &amp; Action: ReAct
 
-- ReAct [1] : integrating reasoning and acting within LLM
+- ReAct[1]: integrating reasoning and acting within LLM
 - By extending action as a combination of task-specific discrete actions and language
 
 - Page 13 -
 
 ## Planning &amp; Action: ReAct
 
-- ReAct [1] : integrating reasoning and acting within LLM
+- ReAct[1]: integrating reasoning and acting within LLM
 - By extending action as a combination of task-specific discrete actions and language
 - It is implemented by few-shot prompting
 
@@ -115,60 +115,60 @@ Not simply improved by just scaling-up model &amp; data size
 ## Planning &amp; Action: ReAct
 
 - Experimental result
-- ReAct → CoT-SC: ReAct fails to return an answer within given steps, back off to CoT-SC
-- CoT-SC → ReAct: when # of voting among n paths occurs less than n/2, back off to ReAct
+- ReAct → CoT -SC: ReAct fails to return an answer within given steps, back off to CoT-SC
+- CoT -SC → ReAct: when # of voting among n paths occurs less than n/2, back off to ReAct
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0001/page_0014/pictures_1.png)
+![Image](251204_lecture8_llm_agent/page_0014/pictures_9.png)
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0001/page_0014/pictures_2.png)
+![Image](251204_lecture8_llm_agent/page_0014/pictures_10.png)
 
 - Page 15 -
 
 ## Planning &amp; Action: Reflexion
 
-- Reflexion [1] : reinforce LLM agents through linguistic feedback ( self-reflection )
+- Reflexion[1]: reinforce LLM agents through linguistic feedback (self-reflection)
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0001/page_0015/pictures_3.png)
+![Image](251204_lecture8_llm_agent/page_0015/pictures_11.png)
 
 - Page 16 -
 
 ## Planning &amp; Action: Reflexion
 
-- Reflexion [1] : reinforce LLM agents through linguistic feedback ( self-reflection )
+- Reflexion[1]: reinforce LLM agents through linguistic feedback (self-reflection)
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0001/page_0016/pictures_4.png)
+![Image](251204_lecture8_llm_agent/page_0016/pictures_12.png)
 
 - Page 17 -
 
 ## Planning &amp; Action: Reflexion
 
-- Reflexion [1] : reinforce LLM agents through linguistic feedback ( self-reflection )
+- Reflexion[1]: reinforce LLM agents through linguistic feedback (self-reflection)
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0001/page_0017/pictures_5.png)
+![Image](251204_lecture8_llm_agent/page_0017/pictures_13.png)
 
 - Page 18 -
 
 ## Planning &amp; Action: Reflexion
 
-- Reflexion [1] : reinforce LLM agents through linguistic feedback ( self-reflection )
+- Reflexion[1]: reinforce LLM agents through linguistic feedback (self-reflection)
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0001/page_0018/pictures_6.png)
+![Image](251204_lecture8_llm_agent/page_0018/pictures_14.png)
 
 - Page 19 -
 
 ## Planning &amp; Action: Reflexion
 
-- Reflexion [1] : reinforce LLM agents through linguistic feedback ( self-reflection )
+- Reflexion[1]: reinforce LLM agents through linguistic feedback (self-reflection)
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0001/page_0019/pictures_7.png)
+![Image](251204_lecture8_llm_agent/page_0019/pictures_15.png)
 
 - Page 20 -
 
 ## Planning &amp; Action: Reflexion
 
-- Reflexion [1] : reinforce LLM agents through linguistic feedback ( self-reflection )
+- Reflexion[1]: reinforce LLM agents through linguistic feedback (self-reflection)
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0001/page_0020/pictures_8.png)
+![Image](251204_lecture8_llm_agent/page_0020/pictures_16.png)
 
 - Page 21 -
 
@@ -176,9 +176,9 @@ Not simply improved by just scaling-up model &amp; data size
 
 - Experimental results: Sequential decision making (ALFWorld)
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0002/page_0021/pictures_0.png)
+![Image](251204_lecture8_llm_agent/page_0021/pictures_17.png)
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0002/page_0021/pictures_1.png)
+![Image](251204_lecture8_llm_agent/page_0021/pictures_18.png)
 
 - Page 22 -
 
@@ -186,74 +186,74 @@ Not simply improved by just scaling-up model &amp; data size
 
 - Experimental results: Reasoning (HotpotQA)
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0002/page_0022/pictures_2.png)
+![Image](251204_lecture8_llm_agent/page_0022/pictures_19.png)
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0002/page_0022/pictures_3.png)
+![Image](251204_lecture8_llm_agent/page_0022/pictures_20.png)
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0002/page_0022/pictures_4.png)
+![Image](251204_lecture8_llm_agent/page_0022/pictures_21.png)
 
 - Page 23 -
 
 ## Planning &amp; Action: Plan-and-Solve
 
-- Plan-and-solve [1] : explicit planning before solving problem
-- Similar to insert 'let's think step -bystep' for zero -shot chain-of-thought (CoT) [2]
+- Plan -and -solve[1]: explicit planning before solving problem
+- Similar to insert "let's think step-by-step" for zero-shot chain-of-thought (CoT)
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0002/page_0023/pictures_5.png)
+![Image](251204_lecture8_llm_agent/page_0023/pictures_22.png)
 
 - Page 24 -
 
 ## Planning &amp; Action: Plan-and-Solve
 
-- Plan-and-solve [1] : explicit planning before solving problem
-- Similar to insert 'let's think step -bystep' for zero -shot chain-of-thought (CoT) [2]
+- Plan -and -solve[1]: explicit planning before solving problem
+- Similar to insert "let's think step-by-step" for zero-shot chain-of-thought (CoT)
 
 - Page 25 -
 
 ## Planning &amp; Action: Tree of Thoughts
 
-- Tree of Thoughts (ToT) [1] : decomposing problem &amp; search with LLM
+- Tree of Thoughts (ToT)
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0002/page_0025/pictures_6.png)
+![Image](251204_lecture8_llm_agent/page_0025/pictures_23.png)
 
 - Page 26 -
 
 ## Planning &amp; Action: Tree of Thoughts
 
-- Tree of Thoughts (ToT) [1] : decomposing problem &amp; search with LLM
-- 1. Thought decomposition : ToT leverages problem properties to design and decompose intermediate thought steps (via prompting)
+- Tree of Thoughts (ToT)
+- 1. Thought decomposition: ToT leverages problem properties to design and decompose intermediate thought steps (via prompting)
 
 - Page 27 -
 
 ## Planning &amp; Action: Tree of Thoughts
 
-- Tree of Thoughts (ToT) [1] : decomposing problem &amp; search with LLM
-- 2. Thought generation : based on query &amp; previous history, generate new thought
+- Tree of Thoughts (ToT)
+- 2. Thought generation: based on query &amp; previous history, generate new thought
 - (1) i.i.d sampling similr to CoT-SC, (2) sequential sampling via prompting
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0002/page_0027/pictures_7.png)
+![Image](251204_lecture8_llm_agent/page_0027/pictures_24.png)
 
 - Page 28 -
 
 ## Planning &amp; Action: Tree of Thoughts
 
-- Tree of Thoughts (ToT) [1] : decomposing problem &amp; search with LLM
-- 3. State evaluation : estimating goodness of each state via LLM prompting
+- Tree of Thoughts (ToT)
+- 3. State evaluation: estimating goodness of each state via LLM prompting
 - (1) Value: scoring each state (1-10), (2) Vote: among all states in same layer, select one
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0002/page_0028/pictures_8.png)
+![Image](251204_lecture8_llm_agent/page_0028/pictures_25.png)
 
 - Page 29 -
 
 ## Planning &amp; Action: Tree of Thoughts
 
-- Tree of Thoughts (ToT) [1] : decomposing problem &amp; search with LLM
-- 4. Search algorithm : how to select next state
+- Tree of Thoughts (ToT)
+- 4. Search algorithm: how to select next state
 - (1) Breadth-first search (BFS) and (2) Depth-first search (DFS)
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0002/page_0029/pictures_9.png)
+![Image](251204_lecture8_llm_agent/page_0029/pictures_26.png)
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0002/page_0029/pictures_10.png)
+![Image](251204_lecture8_llm_agent/page_0029/pictures_27.png)
 
 - Page 30 -
 
@@ -261,9 +261,9 @@ Not simply improved by just scaling-up model &amp; data size
 
 - Experimental result: Game of 24
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0002/page_0030/pictures_11.png)
+![Image](251204_lecture8_llm_agent/page_0030/pictures_28.png)
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0002/page_0030/pictures_12.png)
+![Image](251204_lecture8_llm_agent/page_0030/pictures_29.png)
 
 - Page 31 -
 
@@ -271,11 +271,11 @@ Not simply improved by just scaling-up model &amp; data size
 
 - Experimental result: Creative Writing
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0003/page_0031/pictures_0.png)
+![Image](251204_lecture8_llm_agent/page_0031/pictures_30.png)
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0003/page_0031/pictures_1.png)
+![Image](251204_lecture8_llm_agent/page_0031/pictures_31.png)
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0003/page_0031/pictures_2.png)
+![Image](251204_lecture8_llm_agent/page_0031/pictures_32.png)
 
 - Page 32 -
 
@@ -291,96 +291,96 @@ Not simply improved by just scaling-up model &amp; data size
 
 - Recent LLMs have capability of using tools
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0003/page_0033/pictures_3.png)
+![Image](251204_lecture8_llm_agent/page_0033/pictures_33.png)
 
 - Page 34 -
 
 ## Prompting-base Approach
 
-- One straight forward way for tooluse with LLMs is ' in-context learning '
-- Example: get weather information [1]
+- One straight forward way for tool-use with LLMs is "in-context learning "
+- Example: get weather information[1]
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0003/page_0034/pictures_4.png)
+![Image](251204_lecture8_llm_agent/page_0034/pictures_34.png)
 
 - Page 35 -
 
 ## Prompting-base Approach
 
-- One straight forward way for tooluse with LLMs is ' in-context learning '
-- Example: get weather information [1]
+- One straight forward way for tool-use with LLMs is "in-context learning "
+- Example: get weather information[1]
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0003/page_0035/pictures_5.png)
+![Image](251204_lecture8_llm_agent/page_0035/pictures_35.png)
 
 - Page 36 -
 
 ## Prompting-base Approach
 
-- Step #1 . Call model with functions defined
+- Step #1. Call model with functions defined
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0003/page_0036/pictures_6.png)
+![Image](251204_lecture8_llm_agent/page_0036/pictures_36.png)
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0003/page_0036/pictures_7.png)
+![Image](251204_lecture8_llm_agent/page_0036/pictures_37.png)
 
 - Page 37 -
 
 ## Prompting-base Approach
 
-- Step #2 . Model decides to call function(s)
+- Step #2. Model decides to call function(s)
 - Model returns the name and input argument
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0003/page_0037/pictures_8.png)
+![Image](251204_lecture8_llm_agent/page_0037/pictures_38.png)
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0003/page_0037/pictures_9.png)
+![Image](251204_lecture8_llm_agent/page_0037/pictures_39.png)
 
 - Page 38 -
 
 ## Prompting-base Approach
 
-- Step #3 . Execute function code
+- Step #3. Execute function code
 - Parse the model's response and handle function calls.
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0003/page_0038/pictures_10.png)
+![Image](251204_lecture8_llm_agent/page_0038/pictures_40.png)
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0003/page_0038/pictures_11.png)
+![Image](251204_lecture8_llm_agent/page_0038/pictures_41.png)
 
 - Page 39 -
 
 ## Prompting-base Approach
 
-- Step #4 . Supply model with results
+- Step #4. Supply model with results
 - So, model can incorporate them into its final response.
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0003/page_0039/pictures_12.png)
+![Image](251204_lecture8_llm_agent/page_0039/pictures_42.png)
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0003/page_0039/pictures_13.png)
+![Image](251204_lecture8_llm_agent/page_0039/pictures_43.png)
 
 - Page 40 -
 
 ## Prompting-base Approach
 
-- Step #5 . Model responds -incorporating the result in its output
+- Step #5. Model responds – incorporating the result in its output
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0003/page_0040/pictures_14.png)
+![Image](251204_lecture8_llm_agent/page_0040/pictures_44.png)
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0003/page_0040/pictures_15.png)
+![Image](251204_lecture8_llm_agent/page_0040/pictures_45.png)
 
 - Page 41 -
 
 ## Prompting-base Approach
 
-- How it works? ' System message '
+- How it works? "System message "
 
 - Page 42 -
 
 ## Prompting-base Approach
 
-- How it works? 'System message' + ' Detailed description '
+- How it works? "System message" + "Detailed description "
 
 - Page 43 -
 
 ## Prompting-base Approach
 
-- How it works? 'System message' + ' Detailed description '
+- How it works? "System message" + "Detailed description "
 - However, this approach might be suboptimal
 - As only relying on implicit in-context learning by LLM (may be only reliable for large LLM)
 - When there are tools frequently called and hence should be handling well
@@ -390,7 +390,7 @@ Not simply improved by just scaling-up model &amp; data size
 ## Toolformer: Motivation
 
 - Supervised fine-tuning (SFT) by collecting data is continuously applicable
-- Using human annotator or large LLM similar to Self-RAG [1]
+- Using human annotator or large LLM similar to Self-RAG[1]
 - However, it necessarily requires large cost
 - Also, it totally relies on intrinsic knowledge of large LLM
 
@@ -398,90 +398,78 @@ Not simply improved by just scaling-up model &amp; data size
 
 ## Toolformer
 
-- Contribution of Toolformer: Self-supervised learning for tool use
-- Self-supervised learning: design task from data without human annotation
-- Key idea : Useful tool → Helpful to predict next token
+- Contribution of Toolformer: Self -supervised learning for tool use
+- Self -supervised learning: design task from data without human annotation
+- Key idea: Useful tool → Helpful to predict next token
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0004/page_0045/pictures_0.png)
+![Image](251204_lecture8_llm_agent/page_0045/pictures_46.png)
 
 - Page 46 -
 
 ## Toolformer
 
-- Let represent API call for tool use as 𝑐 = (𝑎𝑐 , 𝑖 𝑐 )
-- 𝑎𝑐 : name of API, 𝑖 𝑐 : corresponding input
-- Then, it can be incorporated as text tokens with special tokens '&lt;API&gt;,&lt;/API&gt;, → '
+- Let represent API call for tool use as 𝑐 = (𝑎 𝑐
+- 𝑎 𝑐 : name of API, 𝑖 𝑐 : corresponding input
+- Then, it can be incorporated as text tokens with special tokens "&lt;API&gt;,&lt;/API&gt;,→ "
 
-$$e ( c ) = < A P I > a _ { c } ( i _ { c } ) < / A P I >$$
-
-$$\text {result of API call}$$
+<!-- formula-not-decoded -->
 
 - Page 47 -
 
 ## Toolformer
 
 - Then, converting pre-training corpus by augmenting API calls
-- Step 1 . Sampling API Calls through in-context learning
+- Step 1. Sampling API Calls through in-context learning
 
 - Page 48 -
 
 ## Toolformer
 
 - Then, converting pre-training corpus by augmenting API calls
-- Step 2 . Executing API Calls: for each API call 𝑐 yields output 𝑟
+- Step 2. Executing API Calls: for each API call 𝑐 yields output 𝑟
 
 - Page 49 -
 
 ## Toolformer
 
 - Then, converting pre-training corpus by augmenting API calls
-- Step 3 . Filtering API Calls: let 𝑖 be the position of API call
+- Step 3. Filtering API Calls: let 𝑖 be the position of API call
 - Then, considering weighted next token prediction loss
 
-$$L _ { i } ( z ) = - \sum _ { j = i } ^ { n } w _ { j - i } \cdot \log p _ { M } ( x _ { j } \ | \ z , x _ { 1 \colon j - 1 } )$$
-
-- With this, let consider two different losses ( 𝜀 : empty sequence)
-
-$$L _ { i } ^ { + } = L _ { i } ( e ( c _ { i } , r _ { i } ) )$$
+- With this, let consider two different losses (𝜀: empty sequence)
 
 with function call and response
 
-$$L _ { i } ^ { - } = \min \left ( L _ { i } ( \varepsilon ) , L _ { i } ( e ( c _ { i } , \varepsilon ) ) \right )$$
-
-$$^ { \text {no function call} } \text { no response}$$
+<!-- formula-not-decoded -->
 
 - Page 50 -
 
 ## Toolformer
 
 - Then, converting pre-training corpus by augmenting API calls
-- Step 3 . Filtering API Calls: let 𝑖 be the position of API call
-- With this, let consider two different losses ( 𝜀 : empty sequence)
-
-$$L _ { i } ^ { + } = L _ { i } ( e ( c _ { i } , r _ { i } ) )$$
+- Step 3. Filtering API Calls: let 𝑖 be the position of API call
+- With this, let consider two different losses (𝜀: empty sequence)
 
 with function call and response
 
-$$L _ { i } ^ { - } = \min \left ( L _ { i } ( \varepsilon ) , L _ { i } ( \mathbf e ( c _ { i } , \varepsilon ) ) \right )$$
+<!-- formula-not-decoded -->
 
-$$^ { \text {no function call} } \text { no response}$$
-
-- Only keep API calls for which 𝐿 𝑖 - -𝐿𝑖 + ≥ 𝜏 holds
-- i.e., adding API call and its result when it reduces loss by at least 𝜏 , compared to not doing any API call or obtaining no result from it
+- Only keep API calls for which 𝐿𝑖
+- i.e., adding API call and its result when it reduces loss by at least 𝜏, compared to not doing any API call or obtaining no result from it
 
 - Page 51 -
 
 ## Toolformer
 
 - Then, converting pre-training corpus by augmenting API calls
-- Step 4 . Model fine-tuning
+- Step 4. Model fine-tuning
 
 - Page 52 -
 
 ## Toolformer
 
 - Then, converting pre-training corpus by augmenting API calls
-- Step 5 . Inference
+- Step 5. Inference
 
 - Page 53 -
 
@@ -493,21 +481,21 @@ $$^ { \text {no function call} } \text { no response}$$
 
 ## ToolLLM
 
-- Goal : scalable instruction tuning for tool use capability of open-sourced LLMs
+- Goal: scalable instruction tuning for tool use capability of open-sourced LLMs
 - Focusing on developing data collection pipeline specified for tool use
 - By leveraging strong closed LLMs such as ChatGPT
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0005/page_0054/pictures_0.png)
+![Image](251204_lecture8_llm_agent/page_0054/pictures_47.png)
 
 - Page 55 -
 
 ## ToolLLM
 
-- Goal : scalable instruction tuning for tool use capability of open-sourced LLMs
+- Goal: scalable instruction tuning for tool use capability of open-sourced LLMs
 - Focusing on developing data collection pipeline specified for tool use
 - By leveraging strong closed LLMs such as ChatGPT
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0005/page_0055/pictures_1.png)
+![Image](251204_lecture8_llm_agent/page_0055/pictures_48.png)
 
 - Page 56 -
 
@@ -516,7 +504,7 @@ $$^ { \text {no function call} } \text { no response}$$
 - By filtering tools from RapidAPI, collecting 3,451 tools with 16,464 APIs
 - RapidAPI: API marketplace that connects developers with thousands of real-world APIs
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0005/page_0056/pictures_2.png)
+![Image](251204_lecture8_llm_agent/page_0056/pictures_49.png)
 
 - Page 57 -
 
@@ -525,17 +513,15 @@ $$^ { \text {no function call} } \text { no response}$$
 - Then, using ChatGPT, generate instruction that requires tool use to answer
 - Focus on two aspects: (1) diversity &amp; (2) multi-tool usage
 - Prompt is composed of (1) description, (2) documentation for APIs, (3) 3 few-shot data
-- 12/36 diverse few-shot examples for single-tool/multi-tool setting (randomly sampled)
+- 12/36 diverse few -shot examples for single-tool/multi-tool setting (randomly sampled)
 
 - Page 58 -
 
 ## ToolLLM: Instruction Generation
 
 - Then, using ChatGPT, generate instruction that requires tool use to answer
-- With total API set 𝑆𝐴𝑃𝐼 , at each time, 𝑁 APIs 𝑆𝑁 𝑠𝑢𝑏 = {𝐴𝑃𝐼1, … , 𝐴𝑃𝐼𝑁} are sampled
-- Then, generating possible instructions ( 𝐼𝑛𝑠𝑡∗ ) that involve APIs 𝑆∗ 𝑠𝑢𝑏 ⊂ 𝑆𝑁 𝑠𝑢𝑏
-
-$$\{ [ \mathbb { S } _ { 1 } ^ { \text {rel} } , \text {Inst} _ { 1 } ] , \cdots , [ \mathbb { S } _ { N ^ { \prime } } ^ { \text {rel} } , \text {Inst} _ { N ^ { \prime } } ] \}$$
+- With total API set 𝑆𝐴 𝑆𝐴𝑃𝐼 , at each time, 𝑁 APIs 𝑆𝑁 𝑆𝑁 𝑠𝑢𝑏 = {𝐴𝑃𝐼1 , … , 𝐴𝑃𝐼 𝑁 } are sampled
+- Then, generating possible instructions (𝐼𝑛𝑠𝑡 ∗ ) that involve APIs 𝑆 ∗ 𝑠𝑢𝑏 ⊂ 𝑆𝑁 𝑆𝑁 𝑠𝑢𝑏
 
 - After filtering, nearly 200k qualified pairs are collected
 - These instruction and relevant API pairs is utilized to train API retriever
@@ -544,37 +530,37 @@ $$\{ [ \mathbb { S } _ { 1 } ^ { \text {rel} } , \text {Inst} _ { 1 } ] , \cdots
 
 ## ToolLLM: Instruction Generation
 
-## · Example of prompt: 'Task description'
+## · Example of prompt: "Task description"
 
 - Page 60 -
 
 ## ToolLLM: Instruction Generation
 
-## · Example of prompt: 'Few -shot examples'
+## · Example of prompt: "Few-shot examples"
 
 - Page 61 -
 
 ## ToolLLM: Solution Path Annotation
 
-- To generate validate action for given 𝐼𝑛𝑠𝑡∗ and APIs, prompting ChatGPT
+- To generate validate action for given 𝐼𝑛𝑠𝑡 ∗ and APIs, prompting ChatGPT
 - Then, ChatGPT will generate sequence of actions {𝑎1 , … , 𝑎𝑁}
-- At each round 𝑡 , ChatGPT generates 𝑎𝑡 based on previous interactions
+- At each round 𝑡, ChatGPT generates 𝑎 𝑡 based on previous interactions
 
-$$\Gamma \, A P I \, r e s p o n s e \, f o r \, a c t i o n$$
+<!-- formula-not-decoded -->
 
-- Specifically, 𝑎𝑡 has below format
+- Specifically, 𝑎 𝑡 has below format
 
 - Page 62 -
 
 ## ToolLLM: Solution Path Annotation
 
 - Specifically, function call feature of ChatGPT is utilized
-- Namely, sampled APIs 𝑆𝑁 𝑠𝑢𝑏 are fed as available functions (in system message level)
+- Namely, sampled APIs 𝑆𝑁 𝑆𝑁 𝑠𝑢𝑏 are fed as available functions (in system message level)
 - To let ChatGPT finish an action sequence, two additional functions are defined
 - (1) Finish with final answer &amp; (2) Finish by giving up
 - Depth first search is considered to efficiently search and collect data
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0006/page_0062/pictures_0.png)
+![Image](251204_lecture8_llm_agent/page_0062/pictures_50.png)
 
 - Page 63 -
 
@@ -585,7 +571,7 @@ $$\Gamma \, A P I \, r e s p o n s e \, f o r \, a c t i o n$$
 - 1) Retrieving relevant tools &amp; APIs (retrieval of document in RAG)
 - 2) With given APIs, generate proper actions of reasoning &amp; API call (generation in RAG)
 
-![Image](251204_lecture8_llm_agent.pdf__chunk_0006/page_0063/pictures_1.png)
+![Image](251204_lecture8_llm_agent/page_0063/pictures_51.png)
 
 - Page 64 -
 
@@ -600,6 +586,6 @@ $$\Gamma \, A P I \, r e s p o n s e \, f o r \, a c t i o n$$
 
 ## ToolLLM: Experiment - Generation
 
-- TooLLaMA: finetuned LLaMA -7B using instruction-solution pairs
+- TooLLaMA: finetuned LLaMA — 7B using instruction-solution pairs
 - Two metrics: (1) Pass: answerability by LLM &amp; (2) Win: quality compared to ChatGPT
-- Retrieved top-5 APIs are even better than ground-truth 𝑆𝑁 𝑠𝑢𝑏 used to generate data
+- Retrieved top-5 APIs are even better than ground-truth 𝑆𝑁 𝑆𝑁 𝑠𝑢𝑏 used to generate data

@@ -91,7 +91,8 @@ class DoclingParser:
         self.converter = DocumentConverter(
             format_options={
                 InputFormat.PDF: PdfFormatOption(
-                    pipeline_options=pipeline_options
+                    pipeline_options=pipeline_options,
+                    backend=PyPdfiumDocumentBackend # 둘다 수정
                 )
             }
         )
@@ -156,7 +157,7 @@ class DoclingParser:
     def parse(
         self,
         file_dict: Dict[str, BytesIO],
-    ) -> Dict[str, str]:
+    ) -> List[Document]:
         """
         Parse multiple document files to Markdown format with image extraction in batch.
 
@@ -866,11 +867,7 @@ class DocTool:
     with automatic image extraction.
     """
 
-    def __init__(
-        self,
-        do_ocr: bool = False,
-        do_table_structure: bool = True,
-    ):
+    def __init__(self):
         """
         Initialize the document processing tool.
 
@@ -878,10 +875,7 @@ class DocTool:
             do_ocr: Whether to perform OCR on images within documents
             do_table_structure: Whether to detect and preserve table structures
         """
-        config = ParserConfig(
-            do_ocr=do_ocr,
-            do_table_structure=do_table_structure,
-        )
+        config = ParserConfig()
 
         self._parser = DoclingParser(config=config)
 
@@ -901,8 +895,8 @@ class DocTool:
 
 # ex
 if __name__ == "__main__":
-    input_folder = Path("/home/shaush/pdfs")
-    output_root = Path("/home/shaush/work/parsed-outputs")
+    input_folder = Path("/home/shaush/pdf")
+    output_root = Path("/home/shaush/work/parsed-outputs-gpu")
     log_file_path = output_root / "parsing_log.txt"
     
     output_root.mkdir(parents=True, exist_ok=True)

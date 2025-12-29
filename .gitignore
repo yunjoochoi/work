@@ -13,6 +13,14 @@ test/data/doc/constructed_doc*.dt
 test/data/doc/constructed_doc*.md
 logs_cpu/
 logs_gpu/
+formula-parsed-outputs/
+extracted_images/
+images/
+output/
+out/
+parsed-outputs-gpu/
+parsed-outputs/
+parsed-outputs-formula/
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

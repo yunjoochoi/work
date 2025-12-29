@@ -1,4 +1,4 @@
-- Sheet: no_chart (Page 1) -
+- Sheet: no_chart -
 
 | hello   |
 |---------|
@@ -27,7 +27,7 @@
 | bye2   |
 |--------|
 
-- Sheet: chartsheet (Page 2) -
+- Sheet: chartsheet -
 
 | 1
 # Chart: 
