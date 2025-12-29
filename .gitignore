@@ -13,6 +13,7 @@ test/data/doc/constructed_doc*.dt
 test/data/doc/constructed_doc*.md
 logs_cpu/
 logs_gpu/
+parsed_outputs/
 formula-parsed-outputs/
 extracted_images/
 images/
