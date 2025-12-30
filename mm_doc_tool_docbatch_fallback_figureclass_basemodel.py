@@ -896,7 +896,7 @@ class DocTool:
 # ex
 if __name__ == "__main__":
     input_folder = Path("/home/shaush/pdf")
-    output_root = Path("/home/shaush/work/parsed-outputs-gpu")
+    output_root = Path("/home/shaush/work/parsed-outputs-1231")
     log_file_path = output_root / "parsing_log.txt"
     
     output_root.mkdir(parents=True, exist_ok=True)

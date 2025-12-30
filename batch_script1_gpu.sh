@@ -13,8 +13,6 @@ echo "Allocated GPUs: $CUDA_VISIBLE_DEVICES"
 # echo "GPU script w/o limit"
 
 
-echo "Dolphin"
-
 # cd /home/shaush/work
 # source .venv/bin/activate
 
